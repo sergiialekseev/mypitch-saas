@@ -23,8 +23,8 @@ const NavBar = () => {
           </Button>
           {user ? (
             <>
-              <Button component={RouterLink} to="/dashboard" color="inherit">
-                Dashboard
+              <Button component={RouterLink} to="/app" color="inherit">
+                Jobs
               </Button>
               <Button variant="contained" color="secondary" onClick={handleLogout}>
                 Logout

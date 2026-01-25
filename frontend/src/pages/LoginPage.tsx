@@ -17,7 +17,7 @@ const LoginPage = () => {
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      navigate("/dashboard");
+      navigate("/app");
     } catch (err) {
       setError("Login failed. Check your credentials and try again.");
     } finally {
@@ -31,7 +31,7 @@ const LoginPage = () => {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-      navigate("/dashboard");
+      navigate("/app");
     } catch (err) {
       setError("Google sign-in failed.");
     } finally {

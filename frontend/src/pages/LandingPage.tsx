@@ -3,16 +3,16 @@ import { Link as RouterLink } from "react-router-dom";
 
 const features = [
   {
-    title: "Interview blueprints",
-    description: "Craft structured practice sessions for roles, companies, and goals in minutes."
+    title: "Job-ready setup",
+    description: "Create roles, add candidates, and ship invite links in minutes."
   },
   {
-    title: "Real-time feedback",
-    description: "Track progress and iterate with guided performance insights and checkpoints."
+    title: "Interview consistency",
+    description: "Standardize candidate experience with clear guidance and structured flows."
   },
   {
-    title: "Team-ready",
-    description: "Invite teammates, share playbooks, and standardize hiring prep across your org."
+    title: "Recruiter focus",
+    description: "Track interview sessions and feedback without wrestling with tools."
   }
 ];
 
@@ -29,10 +29,10 @@ const LandingPage = () => {
           <Grid container spacing={6} alignItems="center">
             <Grid item xs={12} md={6}>
               <Stack spacing={3} className="fade-up">
-                <Typography variant="h1">Make every interview feel like a launch day.</Typography>
+                <Typography variant="h1">Recruiter-first interview workflows.</Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ fontSize: "1.1rem" }}>
-                  MyPitch helps teams orchestrate AI interview practice with a beautiful workflow, clean feedback
-                  loops, and structured prep sessions.
+                  MyPitch helps recruiting teams create jobs, invite candidates, and run structured interviews with
+                  zero friction.
                 </Typography>
                 <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
                   <Button variant="contained" color="primary" size="large" component={RouterLink} to="/register">
@@ -55,11 +55,10 @@ const LandingPage = () => {
                 }}
               >
                 <Typography variant="h3" gutterBottom>
-                  Pitch Room
+                  Candidate room
                 </Typography>
                 <Typography color="text.secondary">
-                  Launch a new practice session, capture progress metrics, and keep hiring pipelines aligned across
-                  teams.
+                  Share a secure invite link and guide candidates through a consistent interview experience.
                 </Typography>
               </Box>
             </Grid>
