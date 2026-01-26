@@ -61,8 +61,46 @@ const isInviteExpired = (expiresAt?: Timestamp) => {
   return expiresAt.toMillis() < Date.now();
 };
 
-const buildSystemPrompt = (title: string) =>
-  `You are a recruiter conducting an interview for the role: ${title}. Ask structured questions and keep responses concise.`;
+const normalizeMarkdown = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+
+const extractSummary = (markdown: string) => {
+  if (!markdown) return "";
+  const firstLine = markdown
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  if (!firstLine) return "";
+  const cleaned = firstLine.replace(/^#+\s*/, "");
+  return cleaned.length > 160 ? `${cleaned.slice(0, 157)}...` : cleaned;
+};
+
+const parseQuestionsMarkdown = (markdown: string) => {
+  if (!markdown) return [];
+  return markdown
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.replace(/^([-*+]|\d+\.)\s+/, "").replace(/^\[.?]\s+/, "").trim())
+    .filter((line) => line.length > 0);
+};
+
+const buildSystemPrompt = (jobTitle: string, descriptionMarkdown: string, questions: string[]) => {
+  const questionList = questions.length ? questions.map((q, index) => `${index + 1}. ${q}`).join("\n") : "";
+  return `
+You are a recruiter conducting an interview for the role: ${jobTitle}.
+
+Job description (markdown):
+${descriptionMarkdown || "No description provided."}
+
+Interview questions (ask in order, one at a time, wait for the answer before the next):
+${questionList || "Ask standard screening questions about experience, motivation, and role fit."}
+
+Rules:
+1. Follow the question order exactly and do not skip or reorder.
+2. Ask one question at a time and wait for the candidate's reply.
+3. Keep responses concise and spoken-friendly.
+  `.trim();
+};
 
 const getGeminiApiKey = () => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -97,20 +135,88 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", service: "mypitch-backend" });
 });
 
+app.post("/api/v1/jobs/format", requireAuth, async (req, res) => {
+  const { rawText } = req.body || {};
+  const normalizedRaw = normalizeMarkdown(rawText);
+
+  if (!normalizedRaw) {
+    res.status(400).json({ error: "rawText is required" });
+    return;
+  }
+
+  const prompt = `
+You are an expert recruiter and editor.
+Convert the raw job description below into clean GitHub-flavored Markdown.
+Use clear headings and bullet lists. Keep the content faithful to the input.
+Do not invent details that are not in the text.
+
+Required sections (include only if present in the text):
+- Role summary
+- Responsibilities
+- Requirements
+- Nice to have
+- Benefits
+- Location
+- Hiring process
+
+Return ONLY Markdown. No extra commentary.
+
+RAW INPUT:
+${normalizedRaw}
+  `.trim();
+
+  try {
+    const ai = createGeminiClient();
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: prompt
+    });
+
+    const markdown = response.text?.trim();
+    if (!markdown) {
+      res.status(500).json({ error: "Failed to generate markdown" });
+      return;
+    }
+
+    res.json({ markdown });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to generate markdown" });
+  }
+});
+
 app.post("/api/v1/jobs", requireAuth, async (req, res) => {
   const recruiterId = getRecruiterId(res);
-  const { title, description } = req.body || {};
+  const { title, rawDescription, description, descriptionMarkdown, questionsMarkdown } = req.body || {};
 
   if (typeof title !== "string" || !title.trim()) {
     res.status(400).json({ error: "title is required" });
     return;
   }
 
+  const normalizedRawDescription = normalizeMarkdown(rawDescription);
+  if (!normalizedRawDescription) {
+    res.status(400).json({ error: "rawDescription is required" });
+    return;
+  }
+
+  const normalizedDescription = normalizeMarkdown(description);
+  const normalizedDescriptionMarkdown = normalizeMarkdown(descriptionMarkdown);
+  if (!normalizedDescriptionMarkdown) {
+    res.status(400).json({ error: "descriptionMarkdown is required" });
+    return;
+  }
+  const normalizedQuestionsMarkdown = normalizeMarkdown(questionsMarkdown);
+  const questions = parseQuestionsMarkdown(normalizedQuestionsMarkdown);
+
   const now = Timestamp.now();
   const jobRef = await db.collection("jobs").add({
     recruiterId,
     title: title.trim(),
-    description: typeof description === "string" ? description.trim() : "",
+    rawDescription: normalizedRawDescription,
+    description: normalizedDescription || extractSummary(normalizedDescriptionMarkdown),
+    descriptionMarkdown: normalizedDescriptionMarkdown,
+    questionsMarkdown: normalizedQuestionsMarkdown,
+    questions,
     status: "open",
     createdAt: now,
     updatedAt: now
@@ -121,7 +227,11 @@ app.post("/api/v1/jobs", requireAuth, async (req, res) => {
       id: jobRef.id,
       recruiterId,
       title: title.trim(),
-      description: typeof description === "string" ? description.trim() : "",
+      rawDescription: normalizedRawDescription,
+      description: normalizedDescription || extractSummary(normalizedDescriptionMarkdown),
+      descriptionMarkdown: normalizedDescriptionMarkdown,
+      questionsMarkdown: normalizedQuestionsMarkdown,
+      questions,
       status: "open",
       createdAt: now.toDate().toISOString()
     }
@@ -161,6 +271,8 @@ app.get("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
     .orderBy("createdAt", "desc")
     .get();
   const invitesSnap = await db.collection("invites").where("jobId", "==", jobSnap.id).get();
+  const sessionsSnap = await db.collection("sessions").where("jobId", "==", jobSnap.id).get();
+  const reportsSnap = await db.collection("reports").where("jobId", "==", jobSnap.id).get();
 
   const candidates = candidatesSnap.docs.map((docSnap) => {
     const data = docSnap.data();
@@ -184,6 +296,44 @@ app.get("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
     };
   });
 
+  const sessions = sessionsSnap.docs.map((docSnap) => {
+    const data = docSnap.data();
+    return {
+      id: docSnap.id,
+      candidateId: data.candidateId,
+      status: data.status,
+      startedAt: data.startedAt?.toDate().toISOString() || null,
+      endedAt: data.endedAt?.toDate().toISOString() || null
+    };
+  });
+
+  const reportsBySession = new Map(
+    reportsSnap.docs.map((docSnap) => {
+      const data = docSnap.data();
+      return [
+        docSnap.id,
+        {
+          id: docSnap.id,
+          candidateId: data.candidateId,
+          score: typeof data.score === "number" ? data.score : null,
+          createdAt: data.createdAt?.toDate().toISOString() || null
+        }
+      ];
+    })
+  );
+
+  const candidateResults = sessions.map((session) => {
+    const report = reportsBySession.get(session.id);
+    return {
+      candidateId: session.candidateId,
+      sessionId: session.id,
+      sessionStatus: session.status,
+      reportId: report?.id || null,
+      score: report?.score ?? null,
+      reportCreatedAt: report?.createdAt || null
+    };
+  });
+
   res.json({
     job: {
       id: jobSnap.id,
@@ -192,7 +342,147 @@ app.get("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
       updatedAt: jobData.updatedAt?.toDate().toISOString() || null
     },
     candidates,
-    invites
+    invites,
+    candidateResults
+  });
+});
+
+app.get("/api/v1/jobs/:jobId/preview", async (req, res) => {
+  const jobRef = db.collection("jobs").doc(req.params.jobId);
+  const jobSnap = await jobRef.get();
+
+  if (!jobSnap.exists) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
+  const jobData = jobSnap.data() || {};
+
+  res.json({
+    job: {
+      id: jobSnap.id,
+      title: jobData.title || "",
+      descriptionMarkdown: jobData.descriptionMarkdown || "",
+      questionsMarkdown: jobData.questionsMarkdown || ""
+    }
+  });
+});
+
+app.get("/api/v1/jobs/:jobId/candidates/:candidateId/report", requireAuth, async (req, res) => {
+  const recruiterId = getRecruiterId(res);
+  const { jobId, candidateId } = req.params;
+  const jobRef = db.collection("jobs").doc(jobId);
+  const jobSnap = await jobRef.get();
+
+  if (!jobSnap.exists || jobSnap.data()?.recruiterId !== recruiterId) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
+  const candidateSnap = await db.collection("candidates").doc(candidateId).get();
+  if (!candidateSnap.exists || candidateSnap.data()?.jobId !== jobId) {
+    res.status(404).json({ error: "Candidate not found" });
+    return;
+  }
+
+  const sessionsSnap = await db
+    .collection("sessions")
+    .where("jobId", "==", jobId)
+    .where("candidateId", "==", candidateId)
+    .limit(1)
+    .get();
+
+  if (sessionsSnap.empty) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  const sessionDoc = sessionsSnap.docs[0];
+  const sessionData = sessionDoc.data();
+  const reportSnap = await db.collection("reports").doc(sessionDoc.id).get();
+
+  if (!reportSnap.exists) {
+    res.status(404).json({ error: "Report not found" });
+    return;
+  }
+
+  const reportData = reportSnap.data() || {};
+  const jobData = jobSnap.data() || {};
+  const candidateData = candidateSnap.data() || {};
+
+  res.json({
+    job: {
+      id: jobSnap.id,
+      title: jobData.title || ""
+    },
+    candidate: {
+      id: candidateSnap.id,
+      name: candidateData.name || "",
+      email: candidateData.email || ""
+    },
+    session: {
+      id: sessionDoc.id,
+      status: sessionData.status,
+      startedAt: sessionData.startedAt?.toDate().toISOString() || null,
+      endedAt: sessionData.endedAt?.toDate().toISOString() || null
+    },
+    report: {
+      id: reportSnap.id,
+      ...reportData
+    }
+  });
+});
+
+app.put("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
+  const recruiterId = getRecruiterId(res);
+  const { title, rawDescription, description, descriptionMarkdown, questionsMarkdown } = req.body || {};
+  const jobRef = db.collection("jobs").doc(req.params.jobId);
+  const jobSnap = await jobRef.get();
+
+  if (!jobSnap.exists || jobSnap.data()?.recruiterId !== recruiterId) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
+  if (title !== undefined && (typeof title !== "string" || !title.trim())) {
+    res.status(400).json({ error: "title must be a non-empty string" });
+    return;
+  }
+
+  const normalizedDescription = normalizeMarkdown(description);
+  const normalizedDescriptionMarkdown = normalizeMarkdown(descriptionMarkdown) || normalizedDescription;
+  const normalizedQuestionsMarkdown = normalizeMarkdown(questionsMarkdown);
+  const questions = parseQuestionsMarkdown(normalizedQuestionsMarkdown);
+  const normalizedRawDescription = normalizeMarkdown(rawDescription);
+
+  const updatePayload: Record<string, unknown> = {
+    updatedAt: Timestamp.now()
+  };
+
+  if (title !== undefined) updatePayload.title = title.trim();
+  if (rawDescription !== undefined) updatePayload.rawDescription = normalizedRawDescription;
+  if (description !== undefined) updatePayload.description = normalizedDescription;
+  if (descriptionMarkdown !== undefined) updatePayload.descriptionMarkdown = normalizedDescriptionMarkdown;
+  if (questionsMarkdown !== undefined) {
+    updatePayload.questionsMarkdown = normalizedQuestionsMarkdown;
+    updatePayload.questions = questions;
+  }
+
+  if (descriptionMarkdown !== undefined && !normalizedDescription) {
+    updatePayload.description = extractSummary(normalizedDescriptionMarkdown);
+  }
+
+  await jobRef.update(updatePayload);
+  const updatedSnap = await jobRef.get();
+  const updatedJob = updatedSnap.data() || {};
+
+  res.json({
+    job: {
+      id: updatedSnap.id,
+      ...updatedJob,
+      createdAt: updatedJob.createdAt?.toDate().toISOString() || null,
+      updatedAt: updatedJob.updatedAt?.toDate().toISOString() || null
+    }
   });
 });
 
@@ -210,6 +500,12 @@ app.post("/api/v1/jobs/:jobId/candidates", requireAuth, async (req, res) => {
 
   if (!jobSnap.exists || jobSnap.data()?.recruiterId !== recruiterId) {
     res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
+  const jobData = jobSnap.data() || {};
+  if (!Array.isArray(jobData.questions) || jobData.questions.length === 0) {
+    res.status(400).json({ error: "Add interview questions before inviting candidates." });
     return;
   }
 
@@ -297,7 +593,9 @@ app.get("/api/v1/invites/:inviteId", async (req, res) => {
     job: {
       id: jobSnap.id,
       title: job.title,
-      description: job.description || ""
+      description: job.description || "",
+      descriptionMarkdown: job.descriptionMarkdown || "",
+      questionsMarkdown: job.questionsMarkdown || ""
     },
     candidate: {
       id: candidateSnap.id,
@@ -334,13 +632,18 @@ app.get("/api/v1/sessions/:sessionId", async (req, res) => {
     session: {
       id: sessionSnap.id,
       status: session.status,
+      systemPrompt: session.systemPrompt || "",
       startedAt: session.startedAt?.toDate().toISOString() || null,
       endedAt: session.endedAt?.toDate().toISOString() || null
     },
     job: {
       id: jobSnap.id,
       title: job.title,
-      description: job.description || ""
+      description: job.description || "",
+      rawDescription: job.rawDescription || "",
+      descriptionMarkdown: job.descriptionMarkdown || "",
+      questionsMarkdown: job.questionsMarkdown || "",
+      questions: Array.isArray(job.questions) ? job.questions : []
     },
     candidate: {
       id: candidateSnap.id,
@@ -373,8 +676,12 @@ app.post("/api/v1/invites/:inviteId/accept", async (req, res) => {
 
   const now = Timestamp.now();
   const jobSnap = await db.collection("jobs").doc(invite.jobId).get();
-  const jobTitle = jobSnap.exists ? jobSnap.data()?.title || "Interview" : "Interview";
-  const systemPrompt = buildSystemPrompt(jobTitle);
+  const jobData = jobSnap.exists ? jobSnap.data() || {} : {};
+  const systemPrompt = buildSystemPrompt(
+    jobData.title || "Interview",
+    jobData.descriptionMarkdown || jobData.rawDescription || jobData.description || "",
+    Array.isArray(jobData.questions) ? jobData.questions : []
+  );
 
   await inviteRef.update({ status: "used", usedAt: now });
   await db.collection("candidates").doc(invite.candidateId).update({ status: "started", updatedAt: now });
@@ -532,7 +839,13 @@ app.post("/api/v1/sessions/:sessionId/report/generate", async (req, res) => {
   }
 
   const job = jobSnap.data() || {};
-  const systemPrompt = session.systemPrompt || buildSystemPrompt(job.title || "Interview");
+  const systemPrompt =
+    session.systemPrompt ||
+    buildSystemPrompt(
+      job.title || "Interview",
+      job.descriptionMarkdown || job.rawDescription || job.description || "",
+      Array.isArray(job.questions) ? job.questions : []
+    );
   const prompt = `
 Act as a World-Class Executive Communications Coach.
 Analyze the following transcript of a roleplay session.

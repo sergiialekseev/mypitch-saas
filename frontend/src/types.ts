@@ -2,6 +2,10 @@ export type Job = {
   id: string;
   title: string;
   description: string;
+  rawDescription?: string;
+  descriptionMarkdown?: string;
+  questionsMarkdown?: string;
+  questions?: string[];
   status: string;
   createdAt?: string | null;
   updatedAt?: string | null;

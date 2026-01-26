@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Alert, Box, Button, Container, Paper, Stack, Typography } from "@mui/material";
 import { useParams } from "react-router-dom";
-import { apiRequest } from "../api/client";
-import type { Report } from "../types";
+import { apiRequest } from "../../api/client";
+import type { Report } from "../../types";
 
 const CandidateReportPage = () => {
   const { sessionId } = useParams();

@@ -17,7 +17,7 @@ const RegisterPage = () => {
     setLoading(true);
     try {
       await createUserWithEmailAndPassword(auth, email, password);
-      navigate("/app");
+      navigate("/app/dashboard");
     } catch (err) {
       setError("Registration failed. Try a stronger password or different email.");
     } finally {
@@ -31,7 +31,7 @@ const RegisterPage = () => {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-      navigate("/app");
+      navigate("/app/dashboard");
     } catch (err) {
       setError("Google sign-in failed.");
     } finally {
