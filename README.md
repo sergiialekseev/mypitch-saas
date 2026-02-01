@@ -253,6 +253,8 @@ Workflows in `.github/workflows/` build and deploy frontend and backend to Cloud
 - `VITE_FIREBASE_STORAGE_BUCKET`
 - `VITE_FIREBASE_MESSAGING_SENDER_ID`
 - `VITE_API_BASE_URL`
+- `FIREBASE_PROJECT_ID`
+- `GEMINI_API_KEY`
 
 For functions deployment:
 - `FIREBASE_PROJECT_ID`

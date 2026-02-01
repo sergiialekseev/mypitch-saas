@@ -48,4 +48,4 @@ jobs:
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
-            --set-env-vars CORS_ORIGIN=${{ secrets.FRONTEND_URL }},PUBLIC_APP_URL=${{ secrets.FRONTEND_URL }}
+            --set-env-vars CORS_ORIGIN=${{ secrets.FRONTEND_URL }},PUBLIC_APP_URL=${{ secrets.FRONTEND_URL }},FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
