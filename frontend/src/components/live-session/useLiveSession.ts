@@ -21,6 +21,8 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
   const [isMicMuted, setIsMicMuted] = useState(false);
+  const [aiTranscript, setAiTranscript] = useState("");
+  const isMicMutedRef = useRef(false);
   const statusRef = useRef(status);
 
   const inputAudioContextRef = useRef<AudioContext | null>(null);
@@ -38,11 +40,16 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
   const retryCountRef = useRef(0);
   const currentUserTextRef = useRef<string>("");
   const currentAiTextRef = useRef<string>("");
+  const aiTurnActiveRef = useRef(false);
   const MAX_RETRIES = 3;
 
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    isMicMutedRef.current = isMicMuted;
+  }, [isMicMuted]);
 
   const stopAudio = useCallback(() => {
     if (liveSessionRef.current) {
@@ -160,7 +167,12 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
   };
 
   useEffect(() => {
-    if (status !== "analyzing") return;
+    const shouldBlock =
+      status === "connecting" ||
+      status === "connected" ||
+      status === "reconnecting" ||
+      status === "analyzing";
+    if (!shouldBlock) return;
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
@@ -202,6 +214,8 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
 
         currentUserTextRef.current = "";
         currentAiTextRef.current = "";
+        setAiTranscript("");
+        aiTurnActiveRef.current = false;
 
         const ai = new GoogleGenAI({ apiKey: token, apiVersion: "v1alpha" });
 
@@ -255,6 +269,10 @@ META INSTRUCTIONS:
                 processor.onaudioprocess = (event) => {
                   if (!mounted) return;
                   if (!isSessionOpenRef.current || !liveSessionRef.current) return;
+                  if (isMicMutedRef.current) {
+                    setIsUserSpeaking(false);
+                    return;
+                  }
                   const inputData = event.inputBuffer.getChannelData(0);
                   const rms = Math.sqrt(inputData.reduce((sum, x) => sum + x * x, 0) / inputData.length);
                   setIsUserSpeaking(rms > 0.02);
@@ -279,7 +297,12 @@ META INSTRUCTIONS:
                   currentUserTextRef.current += serverContent.inputTranscription.text;
                 }
                 if (serverContent.outputTranscription) {
-                  currentAiTextRef.current += serverContent.outputTranscription.text;
+                  const nextText = serverContent.outputTranscription.text;
+                  if (!aiTurnActiveRef.current) {
+                    aiTurnActiveRef.current = true;
+                    setAiTranscript("");
+                  }
+                  currentAiTextRef.current += nextText;
                 }
 
                 if (serverContent.turnComplete) {
@@ -291,8 +314,10 @@ META INSTRUCTIONS:
                   if (currentAiTextRef.current.trim()) {
                     const text = currentAiTextRef.current.trim();
                     currentAiTextRef.current = "";
+                    setAiTranscript(text.slice(-600));
                     await sendTranscript("ai", text);
                   }
+                  aiTurnActiveRef.current = false;
                 }
               }
 
@@ -446,6 +471,7 @@ META INSTRUCTIONS:
     isAiSpeaking,
     isUserSpeaking,
     isMicMuted,
+    aiTranscript,
     toggleMic,
     endSession
   };

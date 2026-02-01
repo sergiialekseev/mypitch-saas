@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Container, Stack, Typography } from "@mui/material";
+import { Alert, Box, Stack, Typography } from "@mui/material";
 import { useNavigate, useParams } from "react-router-dom";
 import { apiRequest } from "../../api/client";
-import LiveSession from "../../components/LiveSession";
+import LiveSessionBlockingOverlay from "../../components/live-session/LiveSessionBlockingOverlay";
+import { useLiveSession } from "../../components/live-session/useLiveSession";
+import LocalVideoPane from "../../components/live-session/LocalVideoPane";
+import AiPictureInPicture from "../../components/live-session/AiPictureInPicture";
+import CallTranscriptBar from "../../components/live-session/CallTranscriptBar";
+import CallControls from "../../components/live-session/CallControls";
 import type { Topic } from "../../types";
 
 type SessionContext = {
@@ -11,9 +16,105 @@ type SessionContext = {
   candidate: { id: string; name: string; email: string };
 };
 
+type CandidateLiveCallProps = {
+  inviteId?: string;
+  sessionId: string;
+  context: SessionContext;
+  topic: Topic;
+};
+
+const LOGO_URL =
+  "https://firebasestorage.googleapis.com/v0/b/mypitch---saas.firebasestorage.app/o/website_assets%2FBlack%20logo.png?alt=media&token=756320ea-2fac-425f-a85b-d6de723254fd";
+
+const CandidateLiveCall = ({ inviteId, sessionId, context, topic }: CandidateLiveCallProps) => {
+  const navigate = useNavigate();
+  const {
+    status,
+    statusLabel,
+    errorMessage,
+    isAiSpeaking,
+    isMicMuted,
+    aiTranscript,
+    toggleMic,
+    endSession
+  } = useLiveSession({
+    topic,
+    userName: context.candidate.name,
+    sessionId,
+    onReportReady: () => {
+      if (inviteId) {
+        navigate(`/c/${inviteId}/report/${sessionId}`);
+      }
+    }
+  });
+
+  return (
+    <Box
+      sx={{
+        height: "100vh",
+        backgroundColor: "#0B1220",
+        color: "#F8FAFC",
+        position: "relative",
+        p: { xs: 2, md: 3 },
+        overflow: "hidden"
+      }}
+    >
+      <LiveSessionBlockingOverlay active={status === "analyzing"} />
+      <Stack spacing={2} sx={{ height: "100%" }}>
+        <Box sx={{ position: "relative", flex: 1, minHeight: 0 }}>
+          <LocalVideoPane name={context.candidate.name} fill />
+          <AiPictureInPicture isSpeaking={isAiSpeaking} />
+          <Box
+            component="img"
+            src={LOGO_URL}
+            alt="MyPitch"
+            sx={{
+              position: "absolute",
+              top: 16,
+              right: 16,
+              height: 26,
+              width: "auto",
+              filter: "brightness(0) invert(1)",
+              opacity: 0.9
+            }}
+          />
+          <Box
+            sx={{
+              position: "absolute",
+              top: 16,
+              left: 16,
+              px: 1.5,
+              py: 0.5,
+              borderRadius: 999,
+              backgroundColor: "rgba(15, 23, 42, 0.7)",
+              border: "1px solid rgba(148, 163, 184, 0.35)",
+              color: "rgba(248,250,252,0.9)",
+              fontSize: 12,
+              fontWeight: 600
+            }}
+          >
+            {statusLabel}
+          </Box>
+        </Box>
+
+        {status === "error" ? (
+          <Alert severity="error">{errorMessage || "Session error."}</Alert>
+        ) : null}
+      </Stack>
+      <CallTranscriptBar text={aiTranscript} statusLabel={statusLabel} />
+      <CallControls
+        isMicMuted={isMicMuted}
+        statusLabel={statusLabel}
+        onToggleMic={toggleMic}
+        onEndSession={endSession}
+        disabled={status !== "connected"}
+      />
+    </Box>
+  );
+};
+
 const CandidateLivePage = () => {
   const { inviteId, sessionId } = useParams();
-  const navigate = useNavigate();
   const [context, setContext] = useState<SessionContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,37 +148,21 @@ const CandidateLivePage = () => {
 
   if (loading) {
     return (
-      <Container sx={{ py: 8 }}>
+      <Box sx={{ minHeight: "100vh", display: "grid", placeItems: "center" }}>
         <Typography color="text.secondary">Loading session...</Typography>
-      </Container>
+      </Box>
     );
   }
 
   if (!sessionId || !context || !topic) {
     return (
-      <Container sx={{ py: 8 }}>
+      <Box sx={{ minHeight: "100vh", display: "grid", placeItems: "center" }}>
         <Alert severity="error">{error || "Session not available."}</Alert>
-      </Container>
+      </Box>
     );
   }
 
-  return (
-    <Container sx={{ py: 8 }} maxWidth="md">
-      <Stack spacing={3}>
-        <Typography variant="h4">Interview session</Typography>
-        <LiveSession
-          topic={topic}
-          userName={context.candidate.name}
-          sessionId={sessionId}
-          onReportReady={() => {
-            if (inviteId) {
-              navigate(`/c/${inviteId}/report/${sessionId}`);
-            }
-          }}
-        />
-      </Stack>
-    </Container>
-  );
+  return <CandidateLiveCall inviteId={inviteId} sessionId={sessionId} context={context} topic={topic} />;
 };
 
 export default CandidateLivePage;
