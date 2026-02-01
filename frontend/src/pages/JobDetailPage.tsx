@@ -64,6 +64,7 @@ const JobDetailPage = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"job" | "candidate">("job");
   const candidateNameRef = useRef<HTMLInputElement | null>(null);
+  const publicAppUrl = import.meta.env.VITE_PUBLIC_APP_URL || window.location.origin;
 
   const loadJob = useCallback(async () => {
     if (!jobId) return;
@@ -200,7 +201,8 @@ const JobDetailPage = () => {
   };
 
   const handleCopy = async (invite: Invite) => {
-    await navigator.clipboard.writeText(invite.link);
+    const inviteUrl = new URL(`/c/${invite.id}`, publicAppUrl).toString();
+    await navigator.clipboard.writeText(inviteUrl);
     setCopiedInviteId(invite.id);
     setTimeout(() => setCopiedInviteId(null), 2000);
   };

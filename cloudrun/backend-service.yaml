@@ -12,3 +12,5 @@ spec:
           env:
             - name: CORS_ORIGIN
               value: "https://frontend-url"
+            - name: PUBLIC_APP_URL
+              value: "https://frontend-url"

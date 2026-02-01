@@ -12,6 +12,10 @@ MyPitch is a modern SaaS web application scaffold for AI interview practice, bui
 - Google Cloud Functions (example)
 - GitHub Actions
 
+## Production URLs (current)
+- Frontend: https://mypitch-frontend-810851882971.europe-west4.run.app
+- Backend: https://mypitch-backend-810851882971.europe-west4.run.app
+
 ## Directory structure
 ```
 .
@@ -114,12 +118,14 @@ VITE_FIREBASE_APP_ID=
 VITE_FIREBASE_STORAGE_BUCKET=
 VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_API_BASE_URL=http://localhost:8080
+VITE_PUBLIC_APP_URL=http://localhost:5173
 ```
 
 Backend: `backend/.env`
 ```
 PORT=8080
 CORS_ORIGIN=http://localhost:5173
+PUBLIC_APP_URL=http://localhost:5173
 ```
 
 ## Local development
@@ -239,7 +245,7 @@ Workflows in `.github/workflows/` build and deploy frontend and backend to Cloud
 - `GCP_PROJECT_ID`
 - `GCP_REGION`
 - `GCP_SA_KEY`
-- `FRONTEND_URL`
+- `FRONTEND_URL` (used for backend `CORS_ORIGIN`, backend `PUBLIC_APP_URL`, and frontend `VITE_PUBLIC_APP_URL`)
 - `VITE_FIREBASE_API_KEY`
 - `VITE_FIREBASE_AUTH_DOMAIN`
 - `VITE_FIREBASE_PROJECT_ID`

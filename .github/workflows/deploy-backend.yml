@@ -48,4 +48,4 @@ jobs:
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
-            --set-env-vars CORS_ORIGIN=${{ secrets.FRONTEND_URL }}
+            --set-env-vars CORS_ORIGIN=${{ secrets.FRONTEND_URL }},PUBLIC_APP_URL=${{ secrets.FRONTEND_URL }}
