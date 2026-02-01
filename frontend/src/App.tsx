@@ -8,6 +8,7 @@ import DashboardPage from "./pages/DashboardPage";
 import JobsPage from "./pages/JobsPage";
 import JobsCreatePage from "./pages/JobsCreatePage";
 import JobDetailPage from "./pages/JobDetailPage";
+import JobsEditPage from "./pages/JobsEditPage";
 import CandidateInvitePage from "./pages/interview/CandidateInvitePage";
 import CandidateLivePage from "./pages/interview/CandidateLivePage";
 import CandidateReportPage from "./pages/interview/CandidateReportPage";
@@ -16,6 +17,9 @@ import ProtectedRoute from "./routes/ProtectedRoute";
 import RecruiterLayout from "./layouts/RecruiterLayout";
 import CandidateResultPage from "./pages/CandidateResultPage";
 import JobPreviewPage from "./pages/JobPreviewPage";
+import StyleGuidePage from "./pages/StyleGuidePage";
+import LegalTermsPage from "./pages/LegalTermsPage";
+import LegalPrivacyPage from "./pages/LegalPrivacyPage";
 
 const App = () => {
   const location = useLocation();
@@ -23,6 +27,7 @@ const App = () => {
     !location.pathname.startsWith("/app") &&
     !location.pathname.startsWith("/c/") &&
     !location.pathname.startsWith("/preview");
+  const showStyleGuide = import.meta.env.VITE_ENABLE_STYLE_GUIDE === "true";
 
   return (
     <Box sx={{ minHeight: "100vh" }}>
@@ -45,13 +50,17 @@ const App = () => {
           <Route path="jobs" element={<JobsPage />} />
           <Route path="jobs/new" element={<JobsCreatePage />} />
           <Route path="jobs/:jobId" element={<JobDetailPage />} />
+          <Route path="jobs/:jobId/edit" element={<JobsEditPage />} />
           <Route path="jobs/:jobId/candidates/:candidateId" element={<CandidateResultPage />} />
         </Route>
         <Route path="/c/:inviteId" element={<CandidateInvitePage />} />
         <Route path="/c/:inviteId/setup" element={<DeviceSetupPage />} />
         <Route path="/c/:inviteId/live/:sessionId" element={<CandidateLivePage />} />
         <Route path="/c/:inviteId/report/:sessionId" element={<CandidateReportPage />} />
+        <Route path="/terms" element={<LegalTermsPage />} />
+        <Route path="/privacy" element={<LegalPrivacyPage />} />
         <Route path="/preview/jobs/:jobId" element={<JobPreviewPage />} />
+        {showStyleGuide ? <Route path="/styleguide" element={<StyleGuidePage />} /> : null}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Box>

@@ -89,11 +89,14 @@ const theme = createTheme({
       }
     },
     MuiButton: {
+      defaultProps: {
+        size: "small"
+      },
       styleOverrides: {
         root: {
-          borderRadius: 12,
-          paddingInline: 20,
-          paddingBlock: 10
+          borderRadius: 10,
+          paddingInline: 16,
+          paddingBlock: 8
         },
         containedPrimary: {
           boxShadow: "0 10px 24px rgba(11, 59, 91, 0.2)"

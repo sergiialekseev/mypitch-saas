@@ -272,6 +272,18 @@ cd backend
 npm run dev
 ```
 
+## Job statuses
+Use these canonical statuses across the app:
+- `open` — accepting candidates
+- `paused` — temporarily closed to new invites
+- `closed` — role filled, no new invites
+- `archived` — hidden from active lists
+
+## Live style guide (internal only)
+- Route: `/styleguide`
+- Enabled only when `VITE_ENABLE_STYLE_GUIDE=true` in your local `.env`
+- Do not set this env var in production builds
+
 
 ## Common architecture rules (front-end)
 
@@ -286,6 +298,27 @@ Use these rules when composing new UI and features:
 - **Loading states:** Always provide explicit loading/empty states for async views.
 - **Styling:** Prefer MUI `sx` or theme overrides; avoid custom CSS unless needed globally.
 - **Reusability:** Use shared components for cards, tables, dialogs, and forms once patterns repeat.
+
+## Loader usage (consistent UX)
+
+Use the shared loader component for all loading states:
+
+- **Component:** `frontend/src/components/ui/Loader.tsx`
+- **Variants:**
+  - `page` — full-page loading (route-level fetches).
+  - `section` — loading inside a card/section.
+  - `inline` — loading inside buttons or small UI areas.
+
+Guidelines:
+- Always show a short label (e.g., "Loading jobs…", "Saving…").
+- Avoid raw spinners in pages; use the Loader component for consistency.
+
+## Table layout (consistent UI)
+
+Use the shared table wrapper for consistent headers and spacing:
+
+- **Component:** `frontend/src/components/ui/TableCard.tsx`
+- **Usage:** Wrap tables and empty states inside `TableCard` for a consistent header layout.
 
 
 # Material UI

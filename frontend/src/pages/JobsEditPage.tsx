@@ -1,35 +1,70 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Box,
   Breadcrumbs,
   Button,
-  Divider,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Stack,
   Step,
   StepLabel,
   Stepper,
-  Stack,
   TextField,
   Typography
 } from "@mui/material";
-import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { Link as RouterLink, useNavigate, useParams } from "react-router-dom";
 import MDEditor from "@uiw/react-md-editor";
 import { apiRequest } from "../api/client";
 import type { Job } from "../types";
+import Loader from "../components/ui/Loader";
 
-const steps = ["Generate draft", "Interview questions", "Review & save"];
+const steps = ["Job details", "Interview questions", "Review & save"];
 
-const JobsCreatePage = () => {
+const JobsEditPage = () => {
+  const { jobId } = useParams();
+  const navigate = useNavigate();
+  const [job, setJob] = useState<Job | null>(null);
   const [title, setTitle] = useState("");
   const [rawDescription, setRawDescription] = useState("");
   const [rawDraft, setRawDraft] = useState("");
   const [descriptionMarkdown, setDescriptionMarkdown] = useState("");
   const [questionsMarkdown, setQuestionsMarkdown] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
-  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [rawDialogOpen, setRawDialogOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadJob = useCallback(async () => {
+    if (!jobId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiRequest<{ job: Job }>(`/api/v1/jobs/${jobId}`, { auth: true });
+      setJob(data.job);
+      setTitle(data.job.title || "");
+      setDescriptionMarkdown(data.job.descriptionMarkdown || "");
+      setQuestionsMarkdown(data.job.questionsMarkdown || "");
+      setRawDescription(data.job.rawDescription || "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load job.");
+    } finally {
+      setLoading(false);
+    }
+  }, [jobId]);
+
+  useEffect(() => {
+    loadJob();
+  }, [loadJob]);
+
+  const openRawDialog = () => {
+    setRawDraft(rawDescription || "");
+    setRawDialogOpen(true);
+  };
 
   const handleGenerate = async () => {
     setError(null);
@@ -50,7 +85,7 @@ const JobsCreatePage = () => {
       if (data.title) {
         setTitle(data.title);
       }
-      setActiveStep(1);
+      setRawDialogOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not generate markdown.");
     } finally {
@@ -59,13 +94,14 @@ const JobsCreatePage = () => {
   };
 
   const handleSave = async () => {
+    if (!jobId) return;
     setError(null);
     if (!title.trim()) {
       setError("Add a job title to continue.");
       return;
     }
     if (!descriptionMarkdown.trim()) {
-      setError("Generate markdown before saving.");
+      setError("Job description cannot be empty.");
       return;
     }
     if (!questionsMarkdown.trim()) {
@@ -76,8 +112,8 @@ const JobsCreatePage = () => {
     setSaving(true);
     try {
       const resolvedRaw = rawDescription.trim() ? rawDescription : descriptionMarkdown;
-      const data = await apiRequest<{ job: Job }>("/api/v1/jobs", {
-        method: "POST",
+      const data = await apiRequest<{ job: Job }>(`/api/v1/jobs/${jobId}`, {
+        method: "PUT",
         auth: true,
         body: {
           title,
@@ -86,29 +122,43 @@ const JobsCreatePage = () => {
           questionsMarkdown
         }
       });
-      navigate(`/app/jobs/${data.job.id}`);
+      setJob(data.job);
+      navigate(`/app/jobs/${jobId}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create job.");
+      setError(err instanceof Error ? err.message : "Could not save job.");
     } finally {
       setSaving(false);
     }
   };
 
+  if (loading) {
+    return <Loader variant="page" label="Loading job..." />;
+  }
+
+  if (!job) {
+    return (
+      <Stack spacing={2} sx={{ py: 6 }}>
+        <Alert severity="error">Job not found.</Alert>
+        <Button variant="outlined" onClick={() => navigate("/app/jobs")}>Go back</Button>
+      </Stack>
+    );
+  }
+
   return (
     <>
       <Stack spacing={3}>
         <Breadcrumbs>
-          <Button component={RouterLink} to="/app/jobs" variant="outlined" size="small">
+          <Button component={RouterLink} to={`/app/jobs/${jobId}`} variant="outlined" size="small">
             Back
           </Button>
-          <Typography color="text.primary">Create job</Typography>
+          <Typography color="text.primary">Edit job</Typography>
         </Breadcrumbs>
 
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Box>
-            <Typography variant="h4">Create a new job</Typography>
+            <Typography variant="h4">Edit job</Typography>
             <Typography color="text.secondary">
-              Add a role, generate markdown, and define interview questions.
+              Update the role, refine questions, and save when ready.
             </Typography>
           </Box>
         </Box>
@@ -125,22 +175,27 @@ const JobsCreatePage = () => {
 
         {activeStep === 0 ? (
           <Stack spacing={2}>
-            <Typography variant="h6">Generate job draft</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Paste the raw description and AI will generate the title and markdown.
-            </Typography>
-            <TextField
-              label="Raw job description"
-              value={rawDraft}
-              onChange={(event) => setRawDraft(event.target.value)}
-              multiline
-              minRows={10}
-            />
-            <Box sx={{ display: "flex", gap: 2 }}>
-              <Button variant="contained" onClick={handleGenerate} disabled={generating}>
-                {generating ? "Generating..." : "Generate job draft"}
+            <Typography variant="h6">Role details</Typography>
+            <TextField label="Job title" value={title} onChange={(event) => setTitle(event.target.value)} />
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }}>
+              <Typography variant="subtitle2">Job description (Markdown)</Typography>
+              <Button variant="outlined" size="small" onClick={openRawDialog}>
+                Generate from plain text
               </Button>
-              <Button variant="outlined" onClick={() => navigate("/app/jobs")}>
+            </Stack>
+            <Box data-color-mode="light">
+              <MDEditor
+                value={descriptionMarkdown}
+                onChange={(value) => setDescriptionMarkdown(value ?? "")}
+                preview="edit"
+                height={360}
+              />
+            </Box>
+            <Box sx={{ display: "flex", gap: 2 }}>
+              <Button variant="contained" onClick={() => setActiveStep(1)}>
+                Continue to questions
+              </Button>
+              <Button variant="outlined" onClick={() => navigate(`/app/jobs/${jobId}`)}>
                 Cancel
               </Button>
             </Box>
@@ -189,15 +244,38 @@ const JobsCreatePage = () => {
                 Back
               </Button>
               <Button variant="contained" onClick={handleSave} disabled={saving}>
-                {saving ? "Saving..." : "Save job"}
+                {saving ? "Saving..." : "Save changes"}
               </Button>
             </Box>
           </Stack>
         ) : null}
       </Stack>
 
+      <Dialog open={rawDialogOpen} onClose={() => setRawDialogOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle>Generate Markdown</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Paste the raw job description. AI will generate a structured markdown draft and title.
+            </Typography>
+            <TextField
+              label="Plain text"
+              value={rawDraft}
+              onChange={(event) => setRawDraft(event.target.value)}
+              multiline
+              minRows={10}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRawDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleGenerate} variant="contained" disabled={generating}>
+            {generating ? "Generating..." : "Generate markdown"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 };
 
-export default JobsCreatePage;
+export default JobsEditPage;

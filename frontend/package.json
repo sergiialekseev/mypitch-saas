@@ -9,11 +9,11 @@
     "preview": "vite preview --port 4173"
   },
   "dependencies": {
-    "@emotion/react": "^11.11.4",
-    "@emotion/styled": "^11.11.5",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
     "@google/genai": "^1.38.0",
-    "@mui/icons-material": "^5.15.20",
-    "@mui/material": "^5.15.20",
+    "@mui/icons-material": "^7.3.7",
+    "@mui/material": "^7.3.7",
     "@uiw/react-md-editor": "^4.0.11",
     "firebase": "^10.13.0",
     "react": "^18.3.1",

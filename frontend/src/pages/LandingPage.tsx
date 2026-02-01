@@ -5,10 +5,10 @@ import {
   CardContent,
   Container,
   Divider,
-  Grid,
   Stack,
   Typography
 } from "@mui/material";
+import Grid from "@mui/material/GridLegacy";
 import { Link as RouterLink } from "react-router-dom";
 
 const capabilities = [
@@ -111,24 +111,6 @@ const LandingPage = () => {
                 />
               </Grid>
             </Grid>
-
-            <Card sx={{ maxWidth: 520 }}>
-              <CardContent>
-                <Stack spacing={2}>
-                  <Typography variant="h5">Interview workspace</Typography>
-                  <Typography color="text.secondary">
-                    A clean, guided candidate experience with structured questions and real-time AI feedback.
-                  </Typography>
-                  <Divider />
-                  <Stack spacing={1}>
-                    <Typography variant="subtitle2">Included in every session</Typography>
-                    <Typography color="text.secondary">• Q&A transcript table</Typography>
-                    <Typography color="text.secondary">• Overall score (0–100)</Typography>
-                    <Typography color="text.secondary">• Summary for hiring managers</Typography>
-                  </Stack>
-                </Stack>
-              </CardContent>
-            </Card>
 
             <Grid container spacing={3}>
               {outcomes.map((item) => (

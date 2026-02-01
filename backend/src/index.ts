@@ -132,17 +132,35 @@ app.post("/api/v1/jobs/format", requireAuth, async (req, res) => {
   try {
     const ai = createGeminiClient();
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: prompt
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING, description: "Short, clear job title" },
+            markdown: { type: Type.STRING, description: "Formatted GitHub-flavored Markdown" }
+          }
+        }
+      }
     });
 
-    const markdown = response.text?.trim();
+    const jsonText = response.text?.trim();
+    if (!jsonText) {
+      res.status(500).json({ error: "Failed to generate markdown" });
+      return;
+    }
+
+    const parsed = JSON.parse(jsonText) as { title?: string; markdown?: string };
+    const markdown = parsed.markdown?.trim() || normalizedRaw;
+    const title = parsed.title?.trim() || "";
     if (!markdown) {
       res.status(500).json({ error: "Failed to generate markdown" });
       return;
     }
 
-    res.json({ markdown });
+    res.json({ markdown, title });
   } catch (error) {
     res.status(500).json({ error: "Failed to generate markdown" });
   }
@@ -399,7 +417,7 @@ app.get("/api/v1/jobs/:jobId/candidates/:candidateId/report", requireAuth, async
 
 app.put("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
   const recruiterId = getRecruiterId(res);
-  const { title, rawDescription, description, descriptionMarkdown, questionsMarkdown } = req.body || {};
+  const { title, rawDescription, description, descriptionMarkdown, questionsMarkdown, status } = req.body || {};
   const jobRef = db.collection("jobs").doc(req.params.jobId);
   const jobSnap = await jobRef.get();
 
@@ -411,6 +429,14 @@ app.put("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
   if (title !== undefined && (typeof title !== "string" || !title.trim())) {
     res.status(400).json({ error: "title must be a non-empty string" });
     return;
+  }
+
+  const allowedStatuses = new Set(["open", "paused", "closed", "archived"]);
+  if (status !== undefined) {
+    if (typeof status !== "string" || !allowedStatuses.has(status)) {
+      res.status(400).json({ error: "status must be one of: open, paused, closed, archived" });
+      return;
+    }
   }
 
   const normalizedDescription = normalizeMarkdown(description);
@@ -431,6 +457,7 @@ app.put("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
     updatePayload.questionsMarkdown = normalizedQuestionsMarkdown;
     updatePayload.questions = questions;
   }
+  if (status !== undefined) updatePayload.status = status;
 
   if (descriptionMarkdown !== undefined && !normalizedDescription) {
     updatePayload.description = extractSummary(normalizedDescriptionMarkdown);

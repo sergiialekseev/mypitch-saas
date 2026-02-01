@@ -75,8 +75,8 @@ const CandidateResultPage = () => {
   const breadcrumbs = useMemo(() => {
     return (
       <Breadcrumbs>
-        <Button component={RouterLink} to="/app/jobs">
-          Jobs
+        <Button component={RouterLink} to="/app/jobs" variant="outlined" size="small">
+          Back
         </Button>
         {jobId ? (
           <Button component={RouterLink} to={`/app/jobs/${jobId}`}>
