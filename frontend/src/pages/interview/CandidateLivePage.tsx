@@ -6,7 +6,7 @@ import LiveSession from "../../components/LiveSession";
 import type { Topic } from "../../types";
 
 type SessionContext = {
-  session: { id: string; status: string; systemPrompt?: string };
+  session: { id: string; status: string; systemPrompt: string };
   job: { id: string; title: string; description: string; descriptionMarkdown?: string; questions?: string[] };
   candidate: { id: string; name: string; email: string };
 };
@@ -41,9 +41,7 @@ const CandidateLivePage = () => {
     return {
       title: context.job.title,
       description: context.job.description || "",
-      systemPrompt:
-        context.session.systemPrompt ||
-        `You are a recruiter conducting an interview for the role: ${context.job.title}. Ask structured questions and keep responses concise.`
+      systemPrompt: context.session.systemPrompt || ""
     };
   }, [context]);
 

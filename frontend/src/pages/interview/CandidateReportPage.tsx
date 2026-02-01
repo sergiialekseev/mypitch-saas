@@ -1,5 +1,19 @@
-import { useEffect, useState } from "react";
-import { Alert, Box, Button, Container, Paper, Stack, Typography } from "@mui/material";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  Box,
+  CircularProgress,
+  Container,
+  Paper,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Typography
+} from "@mui/material";
 import { useParams } from "react-router-dom";
 import { apiRequest } from "../../api/client";
 import type { Report } from "../../types";
@@ -7,23 +21,44 @@ import type { Report } from "../../types";
 const CandidateReportPage = () => {
   const { sessionId } = useParams();
   const [report, setReport] = useState<Report | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<"loading" | "pending" | "ready" | "error">("loading");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const attemptsRef = useRef(0);
+  const MAX_ATTEMPTS = 40;
+  const POLL_INTERVAL_MS = 3000;
+
+  const loadReport = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const payload = await apiRequest<{ report: Report }>(`/api/v1/sessions/${sessionId}/report`);
+      setReport(payload.report);
+      setStatus("ready");
+    } catch (err) {
+      attemptsRef.current += 1;
+      if (attemptsRef.current >= MAX_ATTEMPTS) {
+        setStatus("error");
+        setErrorMessage("Report generation is taking longer than expected. Please try again later.");
+      } else {
+        setStatus("pending");
+      }
+    }
+  }, [sessionId]);
 
   useEffect(() => {
-    const loadReport = async () => {
-      if (!sessionId) return;
-      try {
-        const payload = await apiRequest<{ report: Report }>(`/api/v1/sessions/${sessionId}/report`);
-        setReport(payload.report);
-      } catch (err) {
-        setReport(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
+    attemptsRef.current = 0;
+    setReport(null);
+    setStatus("loading");
+    setErrorMessage(null);
     loadReport();
-  }, [sessionId]);
+  }, [loadReport]);
+
+  useEffect(() => {
+    if (status !== "pending") return;
+    const intervalId = window.setInterval(() => {
+      loadReport();
+    }, POLL_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [loadReport, status]);
 
   if (!sessionId) {
     return (
@@ -33,10 +68,21 @@ const CandidateReportPage = () => {
     );
   }
 
-  if (loading) {
+  if (status === "loading" || status === "pending") {
     return (
       <Container sx={{ py: 8 }}>
-        <Typography color="text.secondary">Loading report...</Typography>
+        <Stack spacing={2} alignItems="center">
+          <CircularProgress />
+          <Typography color="text.secondary">Generating your report...</Typography>
+        </Stack>
+      </Container>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <Container sx={{ py: 8 }}>
+        <Alert severity="error">{errorMessage || "Report not available."}</Alert>
       </Container>
     );
   }
@@ -44,14 +90,7 @@ const CandidateReportPage = () => {
   if (!report) {
     return (
       <Container sx={{ py: 8 }}>
-        <Paper sx={{ p: 4 }}>
-          <Typography variant="h5" gutterBottom>
-            Report pending
-          </Typography>
-          <Typography color="text.secondary">
-            Your interview feedback is being prepared. You can refresh this page later.
-          </Typography>
-        </Paper>
+        <Alert severity="error">Report not available.</Alert>
       </Container>
     );
   }
@@ -63,36 +102,44 @@ const CandidateReportPage = () => {
           <Typography variant="h4" gutterBottom>
             Interview report
           </Typography>
-          {report.score !== undefined ? (
-            <Typography color="text.secondary">Score: {report.score}/100</Typography>
-          ) : null}
         </Box>
 
         <Paper sx={{ p: 4 }}>
           <Stack spacing={2}>
-            {report.summary ? <Typography>{report.summary}</Typography> : null}
-            {report.psychological_analysis ? (
-              <Typography color="text.secondary">{report.psychological_analysis}</Typography>
-            ) : null}
-            {report.feedback_items && report.feedback_items.length > 0 ? (
-              <Stack spacing={2}>
-                {report.feedback_items.map((item, index) => (
-                  <Paper key={index} variant="outlined" sx={{ p: 2 }}>
-                    <Typography variant="subtitle2">{item.type}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {item.original_phrase}
-                    </Typography>
-                    <Typography>{item.better_version}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {item.explanation}
-                    </Typography>
-                  </Paper>
-                ))}
-              </Stack>
-            ) : null}
-            <Button variant="outlined" onClick={() => window.location.reload()}>
-              Refresh
-            </Button>
+            <Typography variant="h6">Summary</Typography>
+            <Typography>{report.summary || "—"}</Typography>
+            <Typography variant="h6">Overall score</Typography>
+            <Typography variant="h3">{report.score ?? "—"}</Typography>
+          </Stack>
+        </Paper>
+
+        <Paper sx={{ p: 4 }}>
+          <Stack spacing={2}>
+            <Typography variant="h6">Question &amp; Answer breakdown</Typography>
+            {report.qa?.length ? (
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Question</TableCell>
+                      <TableCell>Answer</TableCell>
+                      <TableCell align="right">Score</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {report.qa.map((item, index) => (
+                      <TableRow key={`${item.question}-${index}`}>
+                        <TableCell sx={{ width: "35%" }}>{item.question}</TableCell>
+                        <TableCell>{item.answer || "—"}</TableCell>
+                        <TableCell align="right">{item.score ?? "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : (
+              <Typography color="text.secondary">No question/answer data available.</Typography>
+            )}
           </Stack>
         </Paper>
       </Stack>

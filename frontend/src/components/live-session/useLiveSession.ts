@@ -21,6 +21,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
   const [isMicMuted, setIsMicMuted] = useState(false);
+  const statusRef = useRef(status);
 
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const outputAudioContextRef = useRef<AudioContext | null>(null);
@@ -32,11 +33,16 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
   const currentSessionRef = useRef<Promise<any> | null>(null);
   const liveSessionRef = useRef<any | null>(null);
   const isSessionOpenRef = useRef(false);
+  const isEndingRef = useRef(false);
   const sessionSeqRef = useRef(0);
   const retryCountRef = useRef(0);
   const currentUserTextRef = useRef<string>("");
   const currentAiTextRef = useRef<string>("");
   const MAX_RETRIES = 3;
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   const stopAudio = useCallback(() => {
     if (liveSessionRef.current) {
@@ -125,8 +131,6 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
 
   const generateReport = async () => {
     try {
-      setStatus("analyzing");
-
       const pendingTranscripts: Promise<void>[] = [];
 
       if (currentUserTextRef.current.trim()) {
@@ -236,8 +240,10 @@ META INSTRUCTIONS:
           callbacks: {
             onopen: () => {
               if (mounted && sessionSeqRef.current === sessionSeq) {
-                setStatus("connected");
-                retryCountRef.current = 0;
+                if (!isEndingRef.current) {
+                  setStatus("connected");
+                  retryCountRef.current = 0;
+                }
               }
 
               if (inputAudioContextRef.current) {
@@ -343,9 +349,12 @@ META INSTRUCTIONS:
               if (sessionSeqRef.current !== sessionSeq) return;
               isSessionOpenRef.current = false;
               liveSessionRef.current = null;
-              if (mounted && status !== "analyzing") setStatus("disconnected");
+              if (mounted && !isEndingRef.current && statusRef.current !== "analyzing") {
+                setStatus("disconnected");
+              }
             },
             onerror: () => {
+              if (isEndingRef.current) return;
               if (mounted && sessionSeqRef.current === sessionSeq) {
                 isSessionOpenRef.current = false;
                 liveSessionRef.current = null;
@@ -376,8 +385,10 @@ META INSTRUCTIONS:
               return;
             }
             if (mounted) {
-              setStatus("connected");
-              retryCountRef.current = 0;
+              if (!isEndingRef.current) {
+                setStatus("connected");
+                retryCountRef.current = 0;
+              }
             }
             liveSessionRef.current = session;
             isSessionOpenRef.current = true;
@@ -404,8 +415,13 @@ META INSTRUCTIONS:
   }, [sessionId, stopAudio, topic, userName]);
 
   const endSession = () => {
+    if (statusRef.current === "analyzing") return;
+    isEndingRef.current = true;
+    setStatus("analyzing");
     stopAudio();
-    generateReport();
+    generateReport().finally(() => {
+      isEndingRef.current = false;
+    });
   };
 
   const statusLabel = (() => {

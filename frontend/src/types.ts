@@ -41,15 +41,11 @@ export type Session = {
 export type Report = {
   id: string;
   score?: number;
-  language_detected?: string;
   summary?: string;
-  psychological_analysis?: string;
-  strengths?: string[];
-  feedback_items?: {
-    original_phrase?: string;
-    better_version?: string;
-    explanation?: string;
-    type?: string;
+  qa?: {
+    question: string;
+    answer: string;
+    score: number;
   }[];
 };
 

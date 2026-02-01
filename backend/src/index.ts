@@ -6,6 +6,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { applicationDefault, initializeApp } from "firebase-admin/app";
 import { getAuth, type DecodedIdToken } from "firebase-admin/auth";
 import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
+import { buildJobFormatPrompt, buildReportPrompt, buildSystemPrompt } from "./prompts";
 
 initializeApp({
   credential: applicationDefault(),
@@ -84,24 +85,6 @@ const parseQuestionsMarkdown = (markdown: string) => {
     .filter((line) => line.length > 0);
 };
 
-const buildSystemPrompt = (jobTitle: string, descriptionMarkdown: string, questions: string[]) => {
-  const questionList = questions.length ? questions.map((q, index) => `${index + 1}. ${q}`).join("\n") : "";
-  return `
-You are a recruiter conducting an interview for the role: ${jobTitle}.
-
-Job description (markdown):
-${descriptionMarkdown || "No description provided."}
-
-Interview questions (ask in order, one at a time, wait for the answer before the next):
-${questionList || "Ask standard screening questions about experience, motivation, and role fit."}
-
-Rules:
-1. Follow the question order exactly and do not skip or reorder.
-2. Ask one question at a time and wait for the candidate's reply.
-3. Keep responses concise and spoken-friendly.
-  `.trim();
-};
-
 const getGeminiApiKey = () => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -144,26 +127,7 @@ app.post("/api/v1/jobs/format", requireAuth, async (req, res) => {
     return;
   }
 
-  const prompt = `
-You are an expert recruiter and editor.
-Convert the raw job description below into clean GitHub-flavored Markdown.
-Use clear headings and bullet lists. Keep the content faithful to the input.
-Do not invent details that are not in the text.
-
-Required sections (include only if present in the text):
-- Role summary
-- Responsibilities
-- Requirements
-- Nice to have
-- Benefits
-- Location
-- Hiring process
-
-Return ONLY Markdown. No extra commentary.
-
-RAW INPUT:
-${normalizedRaw}
-  `.trim();
+  const prompt = buildJobFormatPrompt(normalizedRaw);
 
   try {
     const ai = createGeminiClient();
@@ -626,13 +590,25 @@ app.get("/api/v1/sessions/:sessionId", async (req, res) => {
   }
 
   const job = jobSnap.data() || {};
+  const jobQuestions = Array.isArray(job.questions) ? job.questions : [];
+  const systemPrompt =
+    session.systemPrompt ||
+    buildSystemPrompt(
+      job.title || "Interview",
+      job.descriptionMarkdown || job.rawDescription || job.description || "",
+      jobQuestions
+    );
+
+  if (!session.systemPrompt && systemPrompt) {
+    await sessionRef.update({ systemPrompt });
+  }
   const candidate = candidateSnap.data() || {};
 
   res.json({
     session: {
       id: sessionSnap.id,
       status: session.status,
-      systemPrompt: session.systemPrompt || "",
+      systemPrompt,
       startedAt: session.startedAt?.toDate().toISOString() || null,
       endedAt: session.endedAt?.toDate().toISOString() || null
     },
@@ -643,7 +619,7 @@ app.get("/api/v1/sessions/:sessionId", async (req, res) => {
       rawDescription: job.rawDescription || "",
       descriptionMarkdown: job.descriptionMarkdown || "",
       questionsMarkdown: job.questionsMarkdown || "",
-      questions: Array.isArray(job.questions) ? job.questions : []
+      questions: jobQuestions
     },
     candidate: {
       id: candidateSnap.id,
@@ -839,37 +815,21 @@ app.post("/api/v1/sessions/:sessionId/report/generate", async (req, res) => {
   }
 
   const job = jobSnap.data() || {};
+  const jobQuestions = Array.isArray(job.questions) ? job.questions : [];
   const systemPrompt =
     session.systemPrompt ||
     buildSystemPrompt(
       job.title || "Interview",
       job.descriptionMarkdown || job.rawDescription || job.description || "",
-      Array.isArray(job.questions) ? job.questions : []
+      jobQuestions
     );
-  const prompt = `
-Act as a World-Class Executive Communications Coach.
-Analyze the following transcript of a roleplay session.
-
-Topic: ${job.title || "Interview"}
-Goal: ${job.description || ""}
-Hidden AI Instructions (What the user faced): ${systemPrompt}
-
-TRANSCRIPT:
-${conversationHistory}
-
-TASK:
-1. Identify the primary language spoken by the user.
-2. Provide feedback *in that identified language*.
-3. Analyze the user's "Psychological Vibe". Were they defensive? Apologetic? Clear?
-4. Find 2-3 specific "Pivot Points" where the user missed an opportunity or made a mistake.
-   - IMPORTANT: For "original_phrase", you must quote the user *EXACTLY* as they appear in the transcript. 
-   - DO NOT paraphrase or summarize what the user said. 
-   - If the user did not say a specific phrase, DO NOT invent one. Only use text that actually exists in the TRANSCRIPT under 'User'.
-   - Write a "Perfect Script" for what they SHOULD have said.
-   - Explain why.
-
-Output JSON matching the schema.
-  `;
+  const prompt = buildReportPrompt({
+    jobTitle: job.title || "Interview",
+    jobDescription: job.description || "",
+    systemPrompt,
+    conversationHistory,
+    questions: jobQuestions
+  });
 
   try {
     const ai = createGeminiClient();
@@ -881,23 +841,16 @@ Output JSON matching the schema.
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            score: { type: Type.INTEGER, description: "0-100 performance score" },
-            language_detected: { type: Type.STRING, description: "e.g. English, Spanish, German" },
-            summary: { type: Type.STRING, description: "2 sentence summary in the detected language" },
-            psychological_analysis: {
-              type: Type.STRING,
-              description: "Analysis of tone, confidence, and emotional intelligence in the detected language"
-            },
-            strengths: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of strengths" },
-            feedback_items: {
+            score: { type: Type.INTEGER, description: "Overall performance score 0-100" },
+            summary: { type: Type.STRING, description: "2-3 sentence summary in the user's language" },
+            qa: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  original_phrase: { type: Type.STRING },
-                  better_version: { type: Type.STRING },
-                  explanation: { type: Type.STRING },
-                  type: { type: Type.STRING, enum: ["missed_opportunity", "critical_error", "good_tactic"] }
+                  question: { type: Type.STRING },
+                  answer: { type: Type.STRING },
+                  score: { type: Type.INTEGER, description: "Answer score 0-100" }
                 }
               }
             }

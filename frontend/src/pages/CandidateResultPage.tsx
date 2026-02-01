@@ -1,12 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
   Breadcrumbs,
   Button,
+  CircularProgress,
   Divider,
   Paper,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
   Typography
 } from "@mui/material";
 import { Link as RouterLink, useParams } from "react-router-dom";
@@ -23,29 +30,47 @@ type CandidateResultPayload = {
 const CandidateResultPage = () => {
   const { jobId, candidateId } = useParams();
   const [payload, setPayload] = useState<CandidateResultPayload | null>(null);
+  const [status, setStatus] = useState<"loading" | "pending" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const attemptsRef = useRef(0);
+  const MAX_ATTEMPTS = 40;
+  const POLL_INTERVAL_MS = 3000;
+
+  const loadReport = useCallback(async () => {
+    if (!jobId || !candidateId) return;
+    setError(null);
+    try {
+      const data = await apiRequest<CandidateResultPayload>(
+        `/api/v1/jobs/${jobId}/candidates/${candidateId}/report`,
+        { auth: true }
+      );
+      setPayload(data);
+      setStatus("ready");
+    } catch (err) {
+      attemptsRef.current += 1;
+      if (attemptsRef.current >= MAX_ATTEMPTS) {
+        setStatus("error");
+        setError(err instanceof Error ? err.message : "Report not available.");
+      } else {
+        setStatus("pending");
+      }
+    }
+  }, [jobId, candidateId]);
 
   useEffect(() => {
-    const loadReport = async () => {
-      if (!jobId || !candidateId) return;
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await apiRequest<CandidateResultPayload>(
-          `/api/v1/jobs/${jobId}/candidates/${candidateId}/report`,
-          { auth: true }
-        );
-        setPayload(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Report not available.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
+    attemptsRef.current = 0;
+    setPayload(null);
+    setStatus("loading");
     loadReport();
-  }, [jobId, candidateId]);
+  }, [loadReport]);
+
+  useEffect(() => {
+    if (status !== "pending") return;
+    const intervalId = window.setInterval(() => {
+      loadReport();
+    }, POLL_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [loadReport, status]);
 
   const breadcrumbs = useMemo(() => {
     return (
@@ -63,11 +88,16 @@ const CandidateResultPage = () => {
     );
   }, [jobId, payload?.job.title]);
 
-  if (loading) {
-    return <Typography color="text.secondary">Loading report...</Typography>;
+  if (status === "loading" || status === "pending") {
+    return (
+      <Stack spacing={2} alignItems="center">
+        <CircularProgress />
+        <Typography color="text.secondary">Generating report...</Typography>
+      </Stack>
+    );
   }
 
-  if (!payload) {
+  if (status === "error" || !payload) {
     return <Alert severity="error">{error || "Report not found."}</Alert>;
   }
 
@@ -87,29 +117,39 @@ const CandidateResultPage = () => {
           <Typography color="text.secondary">Role: {payload.job.title}</Typography>
           <Typography color="text.secondary">Status: {payload.session.status}</Typography>
           <Divider />
-          <Typography variant="h6">Score</Typography>
+          <Typography variant="h6">Summary</Typography>
+          <Typography>{report.summary || "—"}</Typography>
+          <Typography variant="h6">Overall score</Typography>
           <Typography variant="h3">{report.score ?? "—"}</Typography>
-          {report.summary ? <Typography>{report.summary}</Typography> : null}
-          {report.psychological_analysis ? (
-            <Typography color="text.secondary">{report.psychological_analysis}</Typography>
-          ) : null}
         </Stack>
       </Paper>
 
       <Paper sx={{ p: 3 }}>
         <Stack spacing={2}>
-          <Typography variant="h6">Feedback highlights</Typography>
-          {report.feedback_items?.length ? (
-            report.feedback_items.map((item, index) => (
-              <Box key={`${item.original_phrase}-${index}`}>
-                <Typography variant="subtitle2">{item.original_phrase}</Typography>
-                <Typography color="text.secondary">{item.better_version}</Typography>
-                {item.explanation ? <Typography variant="body2">{item.explanation}</Typography> : null}
-                <Divider sx={{ my: 1 }} />
-              </Box>
-            ))
+          <Typography variant="h6">Question &amp; Answer breakdown</Typography>
+          {report.qa?.length ? (
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Question</TableCell>
+                    <TableCell>Answer</TableCell>
+                    <TableCell align="right">Score</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {report.qa.map((item, index) => (
+                    <TableRow key={`${item.question}-${index}`}>
+                      <TableCell sx={{ width: "35%" }}>{item.question}</TableCell>
+                      <TableCell>{item.answer || "—"}</TableCell>
+                      <TableCell align="right">{item.score ?? "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
           ) : (
-            <Typography color="text.secondary">No feedback available.</Typography>
+            <Typography color="text.secondary">No question/answer data available.</Typography>
           )}
         </Stack>
       </Paper>
