@@ -1,4 +1,4 @@
-import { Box, CircularProgress, Stack, Typography } from "@mui/material";
+import { Alert, Box, CircularProgress, Stack, Typography } from "@mui/material";
 
 type LiveSessionBlockingOverlayProps = {
   active: boolean;
@@ -10,23 +10,26 @@ const LiveSessionBlockingOverlay = ({ active }: LiveSessionBlockingOverlayProps)
   return (
     <Box
       sx={{
-        position: "absolute",
+        position: "fixed",
         inset: 0,
-        zIndex: 2,
-        backgroundColor: "rgba(15, 23, 42, 0.85)",
+        zIndex: 1400,
+        backgroundColor: "rgb(15, 23, 42)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center"
       }}
     >
-      <Stack spacing={2} alignItems="center" sx={{ maxWidth: 320, textAlign: "center" }}>
+      <Stack spacing={3} alignItems="center" sx={{ maxWidth: 420, textAlign: "center", px: 3 }}>
         <CircularProgress color="inherit" />
-        <Typography variant="h6" color="white">
+        <Typography variant="h5" color="white">
           Generating your interview report
         </Typography>
-        <Typography variant="body2" color="rgba(255,255,255,0.7)">
-          Please keep this tab open. We are finalizing your results now.
+        <Typography variant="body1" color="rgba(255,255,255,0.8)">
+          Please keep this tab open. Closing or refreshing may interrupt report generation.
         </Typography>
+        <Alert severity="warning" sx={{ width: "100%", textAlign: "left" }}>
+          Do not close this tab. We are finalizing your results now.
+        </Alert>
       </Stack>
     </Box>
   );
