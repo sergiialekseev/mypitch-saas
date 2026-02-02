@@ -55,6 +55,13 @@ Rules:
   `.trim();
 };
 
+export const buildLiveOpeningPrompt = (candidateName?: string) => {
+  if (candidateName) {
+    return `The candidate ${candidateName} has joined the interview. Greet them warmly and ask a short opener (e.g., how their day is going). Then WAIT for their response before continuing.`;
+  }
+  return "The candidate has joined the interview. Greet them warmly and ask a short opener. Then WAIT for their response before continuing.";
+};
+
 //job markdown generation
 export const buildJobFormatPrompt = (rawInput: string) => `
 You are an expert recruiter and editor.

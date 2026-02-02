@@ -6,7 +6,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { applicationDefault, initializeApp } from "firebase-admin/app";
 import { getAuth, type DecodedIdToken } from "firebase-admin/auth";
 import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
-import { buildJobFormatPrompt, buildReportPrompt, buildSystemPrompt } from "./prompts";
+import { buildJobFormatPrompt, buildReportPrompt, buildSystemPrompt, buildLiveOpeningPrompt } from "./prompts";
 
 initializeApp({
   credential: applicationDefault(),
@@ -630,12 +630,14 @@ app.get("/api/v1/sessions/:sessionId", async (req, res) => {
     await sessionRef.update({ systemPrompt });
   }
   const candidate = candidateSnap.data() || {};
+  const openingPrompt = session.openingPrompt || buildLiveOpeningPrompt(candidate.name);
 
   res.json({
     session: {
       id: sessionSnap.id,
       status: session.status,
       systemPrompt,
+      openingPrompt,
       startedAt: session.startedAt?.toDate().toISOString() || null,
       endedAt: session.endedAt?.toDate().toISOString() || null
     },
@@ -680,11 +682,14 @@ app.post("/api/v1/invites/:inviteId/accept", async (req, res) => {
   const now = Timestamp.now();
   const jobSnap = await db.collection("jobs").doc(invite.jobId).get();
   const jobData = jobSnap.exists ? jobSnap.data() || {} : {};
+  const candidateSnap = await db.collection("candidates").doc(invite.candidateId).get();
+  const candidateData = candidateSnap.exists ? candidateSnap.data() || {} : {};
   const systemPrompt = buildSystemPrompt(
     jobData.title || "Interview",
     jobData.descriptionMarkdown || jobData.rawDescription || jobData.description || "",
     Array.isArray(jobData.questions) ? jobData.questions : []
   );
+  const openingPrompt = buildLiveOpeningPrompt(candidateData.name);
 
   await inviteRef.update({ status: "used", usedAt: now });
   await db.collection("candidates").doc(invite.candidateId).update({ status: "started", updatedAt: now });
@@ -697,7 +702,8 @@ app.post("/api/v1/invites/:inviteId/accept", async (req, res) => {
     inviteId: inviteSnap.id,
     status: "active",
     startedAt: now,
-    systemPrompt
+    systemPrompt,
+    openingPrompt
   });
 
   res.json({

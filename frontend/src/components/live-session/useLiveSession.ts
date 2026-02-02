@@ -41,6 +41,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
   const currentUserTextRef = useRef<string>("");
   const currentAiTextRef = useRef<string>("");
   const aiTurnActiveRef = useRef(false);
+  const hasSentGreetingRef = useRef(false);
   const MAX_RETRIES = 3;
 
   useEffect(() => {
@@ -216,6 +217,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
         currentAiTextRef.current = "";
         setAiTranscript("");
         aiTurnActiveRef.current = false;
+        hasSentGreetingRef.current = false;
 
         const ai = new GoogleGenAI({ apiKey: token, apiVersion: "v1alpha" });
 
@@ -239,6 +241,7 @@ META INSTRUCTIONS:
 2. If the user switches language, switch with them instantly.
 3. Keep responses concise (spoken style).
         `;
+  const openingPrompt = topic.openingPrompt?.trim() || "";
 
         const sessionPromise = ai.live.connect({
           model: model || LIVE_MODEL_ID,
@@ -288,6 +291,7 @@ META INSTRUCTIONS:
                 source.connect(processor);
                 processor.connect(inputAudioContextRef.current.destination);
               }
+
             },
             onmessage: async (message: LiveServerMessage) => {
               if (!mounted || sessionSeqRef.current !== sessionSeq) return;
@@ -417,6 +421,21 @@ META INSTRUCTIONS:
             }
             liveSessionRef.current = session;
             isSessionOpenRef.current = true;
+            if (!hasSentGreetingRef.current && openingPrompt) {
+              hasSentGreetingRef.current = true;
+              setTimeout(() => {
+                if (sessionSeqRef.current !== sessionSeq) return;
+                if (!isSessionOpenRef.current || liveSessionRef.current !== session) return;
+                try {
+                  session.sendClientContent({
+                    turns: [{ role: "user", parts: [{ text: openingPrompt }] }],
+                    turnComplete: true
+                  });
+                } catch (e) {
+                  // ignore
+                }
+              }, 60);
+            }
           })
           .catch(() => {
             if (sessionSeqRef.current === sessionSeq) {

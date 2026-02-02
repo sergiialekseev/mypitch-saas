@@ -53,6 +53,7 @@ export type Topic = {
   title: string;
   description: string;
   systemPrompt: string;
+  openingPrompt?: string;
   voice?: string;
   emoji?: string;
 };

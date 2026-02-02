@@ -11,7 +11,7 @@ import CallControls from "../../components/live-session/CallControls";
 import type { Topic } from "../../types";
 
 type SessionContext = {
-  session: { id: string; status: string; systemPrompt: string };
+  session: { id: string; status: string; systemPrompt: string; openingPrompt?: string };
   job: { id: string; title: string; description: string; descriptionMarkdown?: string; questions?: string[] };
   candidate: { id: string; name: string; email: string };
 };
@@ -142,7 +142,8 @@ const CandidateLivePage = () => {
     return {
       title: context.job.title,
       description: context.job.description || "",
-      systemPrompt: context.session.systemPrompt || ""
+      systemPrompt: context.session.systemPrompt || "",
+      openingPrompt: context.session.openingPrompt || ""
     };
   }, [context]);
 
