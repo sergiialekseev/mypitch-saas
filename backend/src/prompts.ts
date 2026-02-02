@@ -134,13 +134,16 @@ TRANSCRIPT:
 ${conversationHistory}
 
 TASK:
-1. Provide an overall performance score from 0-100.
+1. Provide an overall performance quality tier (Fail, Partial, Pass).
+  - Fail: The candidate did not meet the basic expectations for the roleplay.
+  - Partial: The candidate met some expectations but fell short in key areas.
+  - Pass: The candidate met or exceeded all expectations for the roleplay.
 2. Provide a 2-3 sentence summary in the primary language spoken by the user.
 3. Build a question/answer table:
-   - Use the Interview questions list if provided; otherwise, use the coach's questions from the transcript.
-   - For each question, find the user's answer from the transcript (lines starting with "User:").
-   - If no answer is found, use an empty string and score 0 for that question.
-   - Provide a score from 0-100 for each answer.
+  - Use the Interview questions list if provided; otherwise, use the coach's questions from the transcript.
+  - For each question, find the user's answer from the transcript (lines starting with "User:").
+  - If no answer is found, use an empty string and score 0 for that question.
+  - Provide a quality tier (Fail, Partial, Pass) for each answer.
 
 Output JSON matching the schema.
   `.trim();
