@@ -6,6 +6,7 @@ export type Job = {
   descriptionMarkdown?: string;
   questionsMarkdown?: string;
   questions?: string[];
+  language?: string;
   status: string;
   createdAt?: string | null;
   updatedAt?: string | null;

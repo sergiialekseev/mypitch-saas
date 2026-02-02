@@ -6,6 +6,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { applicationDefault, initializeApp } from "firebase-admin/app";
 import { getAuth, type DecodedIdToken } from "firebase-admin/auth";
 import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
+import { DEFAULT_LANGUAGE, LANGUAGES } from "./constants/languages";
 import { buildJobFormatPrompt, buildReportPrompt, buildSystemPrompt, buildLiveOpeningPrompt } from "./prompts";
 
 initializeApp({
@@ -29,6 +30,7 @@ app.use(express.json());
 const appBaseUrl = (process.env.PUBLIC_APP_URL || "http://localhost:5173").replace(/\/$/, "");
 const inviteTtlDays = Number(process.env.INVITE_TTL_DAYS || 7);
 const liveModelId = process.env.GEMINI_LIVE_MODEL || "gemini-2.5-flash-native-audio-preview-12-2025";
+const allowedLanguages = new Set<string>(LANGUAGES);
 
 const buildInviteLink = (inviteId: string) => `${appBaseUrl}/c/${inviteId}`;
 
@@ -118,6 +120,13 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", service: "mypitch-backend" });
 });
 
+app.get("/api/v1/meta/languages", requireAuth, (_req, res) => {
+  res.json({
+    languages: LANGUAGES,
+    defaultLanguage: DEFAULT_LANGUAGE
+  });
+});
+
 app.post("/api/v1/jobs/format", requireAuth, async (req, res) => {
   const { rawText } = req.body || {};
   const normalizedRaw = normalizeMarkdown(rawText);
@@ -168,12 +177,19 @@ app.post("/api/v1/jobs/format", requireAuth, async (req, res) => {
 
 app.post("/api/v1/jobs", requireAuth, async (req, res) => {
   const recruiterId = getRecruiterId(res);
-  const { title, rawDescription, description, descriptionMarkdown, questionsMarkdown } = req.body || {};
+  const { title, rawDescription, description, descriptionMarkdown, questionsMarkdown, language } = req.body || {};
 
   if (typeof title !== "string" || !title.trim()) {
     res.status(400).json({ error: "title is required" });
     return;
   }
+
+  if (language !== undefined && (typeof language !== "string" || !allowedLanguages.has(language))) {
+    res.status(400).json({ error: "language must be one of the allowed values" });
+    return;
+  }
+
+  const resolvedLanguage = language || DEFAULT_LANGUAGE;
 
   const normalizedRawDescription = normalizeMarkdown(rawDescription);
   if (!normalizedRawDescription) {
@@ -199,6 +215,7 @@ app.post("/api/v1/jobs", requireAuth, async (req, res) => {
     descriptionMarkdown: normalizedDescriptionMarkdown,
     questionsMarkdown: normalizedQuestionsMarkdown,
     questions,
+    language: resolvedLanguage,
     status: "open",
     createdAt: now,
     updatedAt: now
@@ -214,6 +231,7 @@ app.post("/api/v1/jobs", requireAuth, async (req, res) => {
       descriptionMarkdown: normalizedDescriptionMarkdown,
       questionsMarkdown: normalizedQuestionsMarkdown,
       questions,
+      language: resolvedLanguage,
       status: "open",
       createdAt: now.toDate().toISOString()
     }
@@ -228,6 +246,7 @@ app.get("/api/v1/jobs", requireAuth, async (_req, res) => {
     return {
       id: docSnap.id,
       ...data,
+      language: data.language || DEFAULT_LANGUAGE,
       createdAt: data.createdAt?.toDate().toISOString() || null,
       updatedAt: data.updatedAt?.toDate().toISOString() || null
     };
@@ -320,6 +339,7 @@ app.get("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
     job: {
       id: jobSnap.id,
       ...jobData,
+      language: jobData.language || DEFAULT_LANGUAGE,
       createdAt: jobData.createdAt?.toDate().toISOString() || null,
       updatedAt: jobData.updatedAt?.toDate().toISOString() || null
     },
@@ -417,7 +437,7 @@ app.get("/api/v1/jobs/:jobId/candidates/:candidateId/report", requireAuth, async
 
 app.put("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
   const recruiterId = getRecruiterId(res);
-  const { title, rawDescription, description, descriptionMarkdown, questionsMarkdown, status } = req.body || {};
+  const { title, rawDescription, description, descriptionMarkdown, questionsMarkdown, status, language } = req.body || {};
   const jobRef = db.collection("jobs").doc(req.params.jobId);
   const jobSnap = await jobRef.get();
 
@@ -439,6 +459,11 @@ app.put("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
     }
   }
 
+  if (language !== undefined && (typeof language !== "string" || !allowedLanguages.has(language))) {
+    res.status(400).json({ error: "language must be one of the allowed values" });
+    return;
+  }
+
   const normalizedDescription = normalizeMarkdown(description);
   const normalizedDescriptionMarkdown = normalizeMarkdown(descriptionMarkdown) || normalizedDescription;
   const normalizedQuestionsMarkdown = normalizeMarkdown(questionsMarkdown);
@@ -458,6 +483,7 @@ app.put("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
     updatePayload.questions = questions;
   }
   if (status !== undefined) updatePayload.status = status;
+  if (language !== undefined) updatePayload.language = language;
 
   if (descriptionMarkdown !== undefined && !normalizedDescription) {
     updatePayload.description = extractSummary(normalizedDescriptionMarkdown);
@@ -617,20 +643,23 @@ app.get("/api/v1/sessions/:sessionId", async (req, res) => {
   }
 
   const job = jobSnap.data() || {};
+  const candidate = candidateSnap.data() || {};
   const jobQuestions = Array.isArray(job.questions) ? job.questions : [];
+  const language = job.language || DEFAULT_LANGUAGE;
   const systemPrompt =
     session.systemPrompt ||
     buildSystemPrompt(
       job.title || "Interview",
       job.descriptionMarkdown || job.rawDescription || job.description || "",
-      jobQuestions
+      jobQuestions,
+      language,
+      candidate.name
     );
 
   if (!session.systemPrompt && systemPrompt) {
     await sessionRef.update({ systemPrompt });
   }
-  const candidate = candidateSnap.data() || {};
-  const openingPrompt = session.openingPrompt || buildLiveOpeningPrompt(candidate.name);
+  const openingPrompt = session.openingPrompt || buildLiveOpeningPrompt(candidate.name, language);
 
   res.json({
     session: {
@@ -684,12 +713,15 @@ app.post("/api/v1/invites/:inviteId/accept", async (req, res) => {
   const jobData = jobSnap.exists ? jobSnap.data() || {} : {};
   const candidateSnap = await db.collection("candidates").doc(invite.candidateId).get();
   const candidateData = candidateSnap.exists ? candidateSnap.data() || {} : {};
+  const language = jobData.language || DEFAULT_LANGUAGE;
   const systemPrompt = buildSystemPrompt(
     jobData.title || "Interview",
     jobData.descriptionMarkdown || jobData.rawDescription || jobData.description || "",
-    Array.isArray(jobData.questions) ? jobData.questions : []
+    Array.isArray(jobData.questions) ? jobData.questions : [],
+    language,
+    candidateData.name
   );
-  const openingPrompt = buildLiveOpeningPrompt(candidateData.name);
+  const openingPrompt = buildLiveOpeningPrompt(candidateData.name, language);
 
   await inviteRef.update({ status: "used", usedAt: now });
   await db.collection("candidates").doc(invite.candidateId).update({ status: "started", updatedAt: now });
@@ -849,12 +881,16 @@ app.post("/api/v1/sessions/:sessionId/report/generate", async (req, res) => {
 
   const job = jobSnap.data() || {};
   const jobQuestions = Array.isArray(job.questions) ? job.questions : [];
+  const candidate = candidateSnap.data() || {};
+  const language = job.language || "English";
   const systemPrompt =
     session.systemPrompt ||
     buildSystemPrompt(
       job.title || "Interview",
       job.descriptionMarkdown || job.rawDescription || job.description || "",
-      jobQuestions
+      jobQuestions,
+      language,
+      candidate.name
     );
   const prompt = buildReportPrompt({
     jobTitle: job.title || "Interview",

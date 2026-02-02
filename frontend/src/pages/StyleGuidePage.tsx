@@ -8,7 +8,18 @@ import {
   Chip,
   Container,
   Divider,
+  FormControl,
+  FormControlLabel,
+  FormLabel,
+  InputLabel,
+  Radio,
+  RadioGroup,
+  Select,
+  MenuItem,
   Stack,
+  Step,
+  StepLabel,
+  Stepper,
   Tab,
   Tabs,
   TextField,
@@ -129,7 +140,69 @@ const StyleGuidePage = () => {
                 <Grid item xs={12}>
                   <TextField label="Multiline" multiline minRows={3} fullWidth />
                 </Grid>
+                <Grid item xs={12} md={6}>
+                  <FormControl fullWidth>
+                    <InputLabel id="styleguide-select-label">Select</InputLabel>
+                    <Select
+                      labelId="styleguide-select-label"
+                      value="English"
+                      label="Select"
+                    >
+                      {[
+                        "Ukrainian",
+                        "English",
+                        "German",
+                        "Spanish",
+                        "Portuguese",
+                        "French",
+                        "Arabic",
+                        "Turkish",
+                        "Russian"
+                      ].map((lang) => (
+                        <MenuItem key={lang} value={lang}>
+                          {lang}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
               </Grid>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Job flow components
+              </Typography>
+              <Stack spacing={3}>
+                <Stepper activeStep={1}>
+                  {["Interview language", "Interview questions", "Job description", "Review & save"].map((label) => (
+                    <Step key={label}>
+                      <StepLabel>{label}</StepLabel>
+                    </Step>
+                  ))}
+                </Stepper>
+
+                <FormControl>
+                  <FormLabel>Interview language</FormLabel>
+                  <RadioGroup value="English">
+                    {[
+                      "Ukrainian",
+                      "English",
+                      "German",
+                      "Spanish",
+                      "Portuguese",
+                      "French",
+                      "Arabic",
+                      "Turkish",
+                      "Russian"
+                    ].map((lang) => (
+                      <FormControlLabel key={lang} value={lang} control={<Radio />} label={lang} />
+                    ))}
+                  </RadioGroup>
+                </FormControl>
+              </Stack>
             </CardContent>
           </Card>
 

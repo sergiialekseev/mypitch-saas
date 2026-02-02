@@ -30,3 +30,29 @@ body {
     animation: none;
   }
 }
+
+.job-markdown-editor .w-md-editor-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 10px 12px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.job-markdown-editor .w-md-editor-toolbar ul > li > button {
+  font-size: 14px;
+  padding: 6px 8px;
+}
+
+.job-markdown-editor .w-md-editor-toolbar svg {
+  width: 18px;
+  height: 18px;
+}
+
+.job-markdown-editor .w-md-editor-content {
+  font-size: 15px;
+  line-height: 1.6;
+}

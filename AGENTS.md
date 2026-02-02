@@ -283,6 +283,7 @@ Use these canonical statuses across the app:
 - Route: `/styleguide`
 - Enabled only when `VITE_ENABLE_STYLE_GUIDE=true` in your local `.env`
 - Do not set this env var in production builds
+- When building or updating UI, reference `frontend/src/pages/StyleGuidePage.tsx` and reuse existing patterns before introducing new styles or components.
 
 
 ## Common architecture rules (front-end)
@@ -298,6 +299,7 @@ Use these rules when composing new UI and features:
 - **Loading states:** Always provide explicit loading/empty states for async views.
 - **Styling:** Prefer MUI `sx` or theme overrides; avoid custom CSS unless needed globally.
 - **Reusability:** Use shared components for cards, tables, dialogs, and forms once patterns repeat.
+- **Style guide first:** If you introduce a new UI pattern, add it to the Style Guide so it becomes the canonical reference.
 
 ## Loader usage (consistent UX)
 

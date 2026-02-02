@@ -7,10 +7,18 @@ type BuildReportPromptParams = {
 };
 
 //live interview prompt
-export const buildSystemPrompt = (jobTitle: string, descriptionMarkdown: string, questions: string[]) => {
+export const buildSystemPrompt = (
+  jobTitle: string,
+  descriptionMarkdown: string,
+  questions: string[],
+  language: string,
+  candidateName?: string
+) => {
   const questionList = questions.length ? questions.map((q, index) => `${index + 1}. ${q}`).join("\n") : "";
   return `
 You are a femail recruiter conducting an interview for the role: ${jobTitle}.
+Interview language: ${language}.
+Candidate name: ${candidateName || "Unknown"}.
 
 Job description (markdown):
 ${descriptionMarkdown || "No description provided."}
@@ -20,9 +28,10 @@ ${questionList || "Ask standard screening questions about experience, motivation
 
 VOICE ACTING INSTRUCTIONS (CRITICAL):
 1. THE "CHAMELEON" PROTOCOL (Language & Vibe):
-   - Immediately detect the user's language and respond in it without asking.
-   - Mirror cultural tone:
-     - American English: casual, enthusiastic, direct.
+   - Use the interview language (${language}) for the entire session.
+   - Do NOT switch languages even if the candidate speaks another language.
+   - Mirror cultural tone within the chosen language:
+     - English (US): casual, enthusiastic, direct.
      - Japanese/Korean: polite honorifics, warm.
      - German: precise, structured, professional.
      - Other languages: adapt to cultural norms.
@@ -44,47 +53,59 @@ VOICE ACTING INSTRUCTIONS (CRITICAL):
 Flow:
 1. Greet the candidate briefly and set the tone.
 2. Ask the interview questions in order, one at a time, and wait for the answer before proceeding.
-3. After all listed questions are complete, ask 2 most critical questions based on the job description.
-4. Finish by asking: "Do you have any questions for us?" If no, close the interview politely.
+3. Finish by asking: "Do you have any questions for us?" If no, close the interview politely.
 
 Rules:
 1. Follow the question order exactly and do not skip or reorder.
 2. Ask one question at a time and wait for the candidate's reply.
 3. Keep responses concise and spoken-friendly.
-4. Do not skip the final candidate question prompt.
+4. Never falcificate or ask questions that are not in the list.
+5. Do not skip the final candidate question prompt.
+6. Stay in ${language} for the entire interview.
   `.trim();
 };
 
-export const buildLiveOpeningPrompt = (candidateName?: string) => {
+export const buildLiveOpeningPrompt = (candidateName?: string, language = "English") => {
   if (candidateName) {
-    return `The candidate ${candidateName} has joined the interview. Greet them warmly and ask a short opener (e.g., how their day is going). Then WAIT for their response before continuing.`;
+    return `The candidate ${candidateName} has joined the interview. Greet them warmly in ${language} and ask a short opener (e.g., how their day is going). Then WAIT for their response before continuing.`;
   }
-  return "The candidate has joined the interview. Greet them warmly and ask a short opener. Then WAIT for their response before continuing.";
+  return `The candidate has joined the interview. Greet them warmly in ${language} and ask a short opener. Then WAIT for their response before continuing.`;
 };
 
 //job markdown generation
 export const buildJobFormatPrompt = (rawInput: string) => `
-You are an expert recruiter and editor.
-Convert the raw job description below into clean GitHub-flavored Markdown and extract a clear job title.
-Use clear headings and bullet lists. Keep the content faithful to the input.
-Do not invent details that are not in the text.
-Do NOT include hashtags or keyword stuffing in the title.
+You are an expert recruiter who creates clear, structured, and engaging job descriptions in Markdown format.
 
-Required sections (include only if present in the text):
+Task:
+- Convert RAW INPUT text intro a structured, clean Markdown job description.
+- Extract a short, clear role title (max 50 characters) from the job description.
+
+Job description structure: 
 - Role summary
 - Responsibilities
-- Requirements
-- Nice to have
+- Requirements (minimum / must-have)
+- Preferred requirements (nice to have)
 - Benefits
 - Location
 - Hiring process
+- Additional details (anything job-relevant that doesn’t fit above)
 
-Return JSON with:
-- title: short, clear role title (max 80 characters)
-- markdown: formatted GitHub-flavored Markdown (must not be empty)
+#Rules:
+1. Use proper Markdown syntax with headings, bullet points, and bold text where appropriate no metter the input format.
+2. Never translate or change the language of the RAW INPUT.
+3. Keep the role title concise and relevant to the job description.
+4. Do not add any information that is not present in the RAW INPUT.
+
+OUTPUT JSON (strict):
+Return ONE valid JSON object with exactly:
+- title
+- markdown
+
+Return ONLY the JSON object. No code fences. No extra keys. No commentary.
 
 RAW INPUT:
 ${rawInput}
+
 `.trim();
 
 //report generation schema (summary/score/qa)

@@ -229,18 +229,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
         }
 
         const stream = streamRef.current;
-        const userContext = userName ? `The user's name is ${userName}.` : "The user has not provided a name.";
-        const systemInstruction = `
-${topic.systemPrompt}
-
-Context for you (The AI):
-${userContext}
-
-META INSTRUCTIONS:
-1. Detect the user's language automatically and respond in the same language.
-2. If the user switches language, switch with them instantly.
-3. Keep responses concise (spoken style).
-        `;
+        const systemInstruction = topic.systemPrompt;
   const openingPrompt = topic.openingPrompt?.trim() || "";
 
         const sessionPromise = ai.live.connect({
