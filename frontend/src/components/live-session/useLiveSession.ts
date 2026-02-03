@@ -5,6 +5,8 @@ import { createAudioData, base64ToArrayBuffer, pcmToAudioBuffer } from "../../ut
 import type { Topic } from "../../types";
 
 const LIVE_MODEL_ID = "gemini-2.5-flash-native-audio-preview-12-2025";
+const INTERVIEW_DURATION_SECONDS = 15 * 60;
+const LOG_PREFIX = "[LiveSession]";
 
 type UseLiveSessionParams = {
   topic: Topic;
@@ -22,8 +24,18 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [aiTranscript, setAiTranscript] = useState("");
+  const [remainingSeconds, setRemainingSeconds] = useState(INTERVIEW_DURATION_SECONDS);
+  const [hasAiGreeted, setHasAiGreeted] = useState(false);
+  const [warningMessage, setWarningMessage] = useState<string | null>(null);
   const isMicMutedRef = useRef(false);
   const statusRef = useRef(status);
+  const timerActiveRef = useRef(false);
+  const hasAiGreetedRef = useRef(false);
+  const warnedFiveRef = useRef(false);
+  const warnedTwoRef = useRef(false);
+  const autoEndedRef = useRef(false);
+  const warningTimeoutRef = useRef<number | null>(null);
+  const timerIntervalRef = useRef<number | null>(null);
 
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const outputAudioContextRef = useRef<AudioContext | null>(null);
@@ -46,6 +58,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
 
   useEffect(() => {
     statusRef.current = status;
+    console.info(LOG_PREFIX, "status:", status);
   }, [status]);
 
   useEffect(() => {
@@ -53,6 +66,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
   }, [isMicMuted]);
 
   const stopAudio = useCallback(() => {
+    console.info(LOG_PREFIX, "stopAudio");
     if (liveSessionRef.current) {
       try {
         liveSessionRef.current.close();
@@ -191,6 +205,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
       const sessionSeq = sessionSeqRef.current + 1;
       sessionSeqRef.current = sessionSeq;
       try {
+        console.info(LOG_PREFIX, "starting session", { sessionId, sessionSeq });
         setStatus("connecting");
         if (liveSessionRef.current) {
           try {
@@ -203,6 +218,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
         }
 
         const { token, model } = await fetchGeminiToken();
+        console.info(LOG_PREFIX, "token fetched", { hasModel: Boolean(model) });
 
         if (inputAudioContextRef.current) {
           inputAudioContextRef.current.close();
@@ -216,6 +232,17 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
         currentUserTextRef.current = "";
         currentAiTextRef.current = "";
         setAiTranscript("");
+        setRemainingSeconds(INTERVIEW_DURATION_SECONDS);
+        setHasAiGreeted(false);
+        setWarningMessage(null);
+        hasAiGreetedRef.current = false;
+        warnedFiveRef.current = false;
+        warnedTwoRef.current = false;
+        autoEndedRef.current = false;
+        if (warningTimeoutRef.current) {
+          window.clearTimeout(warningTimeoutRef.current);
+          warningTimeoutRef.current = null;
+        }
         aiTurnActiveRef.current = false;
         hasSentGreetingRef.current = false;
 
@@ -245,6 +272,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
           },
           callbacks: {
             onopen: () => {
+              console.info(LOG_PREFIX, "socket open");
               if (mounted && sessionSeqRef.current === sessionSeq) {
                 if (!isEndingRef.current) {
                   setStatus("connected");
@@ -306,6 +334,11 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
                   }
                   if (currentAiTextRef.current.trim()) {
                     const text = currentAiTextRef.current.trim();
+                    if (!hasAiGreetedRef.current) {
+                      hasAiGreetedRef.current = true;
+                      setHasAiGreeted(true);
+                      console.info(LOG_PREFIX, "AI greeted, timer can start");
+                    }
                     currentAiTextRef.current = "";
                     setAiTranscript(text.slice(-600));
                     await sendTranscript("ai", text);
@@ -364,6 +397,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
               }
             },
             onclose: () => {
+              console.warn(LOG_PREFIX, "socket closed");
               if (sessionSeqRef.current !== sessionSeq) return;
               isSessionOpenRef.current = false;
               liveSessionRef.current = null;
@@ -371,7 +405,8 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
                 setStatus("disconnected");
               }
             },
-            onerror: () => {
+            onerror: (err?: unknown) => {
+              console.error(LOG_PREFIX, "socket error", err);
               if (isEndingRef.current) return;
               if (mounted && sessionSeqRef.current === sessionSeq) {
                 isSessionOpenRef.current = false;
@@ -449,6 +484,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
 
   const endSession = () => {
     if (statusRef.current === "analyzing") return;
+    console.info(LOG_PREFIX, "endSession triggered");
     isEndingRef.current = true;
     setStatus("analyzing");
     stopAudio();
@@ -456,6 +492,74 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
       isEndingRef.current = false;
     });
   };
+
+  useEffect(() => {
+    if (!hasAiGreeted || status !== "connected") {
+      if (timerIntervalRef.current) {
+        window.clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+        if (timerActiveRef.current) {
+          console.info(LOG_PREFIX, "timer paused", { status, remainingSeconds });
+          timerActiveRef.current = false;
+        }
+      }
+      return;
+    }
+    if (timerIntervalRef.current) return;
+    console.info(LOG_PREFIX, "timer started", { remainingSeconds });
+    timerActiveRef.current = true;
+    timerIntervalRef.current = window.setInterval(() => {
+      setRemainingSeconds((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => {
+      if (timerIntervalRef.current) {
+        window.clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+      if (timerActiveRef.current) {
+        console.info(LOG_PREFIX, "timer stopped", { status, remainingSeconds });
+        timerActiveRef.current = false;
+      }
+    };
+  }, [hasAiGreeted, status]);
+
+  useEffect(() => {
+    if (!hasAiGreeted) return;
+
+    const showWarning = (message: string) => {
+      setWarningMessage(message);
+      if (warningTimeoutRef.current) {
+        window.clearTimeout(warningTimeoutRef.current);
+      }
+      warningTimeoutRef.current = window.setTimeout(() => {
+        setWarningMessage(null);
+      }, 5000);
+    };
+
+    if (remainingSeconds === 300 && !warnedFiveRef.current) {
+      warnedFiveRef.current = true;
+      console.warn(LOG_PREFIX, "timer warning 5 minutes");
+      showWarning("5 minutes remaining.");
+    }
+    if (remainingSeconds === 120 && !warnedTwoRef.current) {
+      warnedTwoRef.current = true;
+      console.warn(LOG_PREFIX, "timer warning 2 minutes");
+      showWarning("2 minutes remaining.");
+    }
+    if (remainingSeconds === 0 && !autoEndedRef.current) {
+      autoEndedRef.current = true;
+      if (timerIntervalRef.current) {
+        window.clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+      if (timerActiveRef.current) {
+        console.info(LOG_PREFIX, "timer finished");
+        timerActiveRef.current = false;
+      }
+      console.warn(LOG_PREFIX, "timer ended, auto ending session");
+      endSession();
+    }
+  }, [hasAiGreeted, remainingSeconds]);
 
   const statusLabel = (() => {
     switch (status) {
@@ -480,6 +584,9 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
     isUserSpeaking,
     isMicMuted,
     aiTranscript,
+    remainingSeconds,
+    hasAiGreeted,
+    warningMessage,
     toggleMic,
     endSession
   };

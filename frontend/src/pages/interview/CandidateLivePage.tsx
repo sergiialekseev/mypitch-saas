@@ -8,6 +8,7 @@ import LocalVideoPane from "../../components/live-session/LocalVideoPane";
 import AiPictureInPicture from "../../components/live-session/AiPictureInPicture";
 import CallTranscriptBar from "../../components/live-session/CallTranscriptBar";
 import CallControls from "../../components/live-session/CallControls";
+import CallTimer from "../../components/live-session/CallTimer";
 import type { Topic } from "../../types";
 
 type SessionContext = {
@@ -35,6 +36,9 @@ const CandidateLiveCall = ({ inviteId, sessionId, context, topic }: CandidateLiv
     isAiSpeaking,
     isMicMuted,
     aiTranscript,
+    remainingSeconds,
+    hasAiGreeted,
+    warningMessage,
     toggleMic,
     endSession
   } = useLiveSession({
@@ -55,7 +59,7 @@ const CandidateLiveCall = ({ inviteId, sessionId, context, topic }: CandidateLiv
         backgroundColor: "#0B1220",
         color: "#F8FAFC",
         position: "relative",
-        p: { xs: 2, md: 3 },
+        p: 0,
         overflow: "hidden"
       }}
     >
@@ -78,23 +82,6 @@ const CandidateLiveCall = ({ inviteId, sessionId, context, topic }: CandidateLiv
               opacity: 0.9
             }}
           />
-          <Box
-            sx={{
-              position: "absolute",
-              top: 16,
-              left: 16,
-              px: 1.5,
-              py: 0.5,
-              borderRadius: 999,
-              backgroundColor: "rgba(15, 23, 42, 0.7)",
-              border: "1px solid rgba(148, 163, 184, 0.35)",
-              color: "rgba(248,250,252,0.9)",
-              fontSize: 12,
-              fontWeight: 600
-            }}
-          >
-            {statusLabel}
-          </Box>
         </Box>
 
         {status === "error" ? (
@@ -102,13 +89,85 @@ const CandidateLiveCall = ({ inviteId, sessionId, context, topic }: CandidateLiv
         ) : null}
       </Stack>
       <CallTranscriptBar text={aiTranscript} statusLabel={statusLabel} />
-      <CallControls
-        isMicMuted={isMicMuted}
-        statusLabel={statusLabel}
-        onToggleMic={toggleMic}
-        onEndSession={endSession}
-        disabled={status !== "connected"}
-      />
+      {warningMessage ? (
+        <Box
+          sx={{
+            position: "fixed",
+            left: "50%",
+            top: 144,
+            transform: "translateX(-50%)",
+            width: "calc(100% - 64px)",
+            maxWidth: 520,
+            zIndex: 10
+          }}
+        >
+          <Alert severity="warning" variant="filled" sx={{ borderRadius: 12, fontWeight: 600 }}>
+            {warningMessage}
+          </Alert>
+        </Box>
+      ) : null}
+      <Box
+        sx={{
+          position: "fixed",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          px: { xs: 2, md: 4 },
+          py: 2,
+          backgroundColor: "rgba(15, 23, 42, 0.6)",
+          borderTop: "1px solid rgba(148, 163, 184, 0.25)",
+          backdropFilter: "blur(8px)",
+          zIndex: 9
+        }}
+      >
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: "1fr auto 1fr",
+            alignItems: "center",
+            gap: 2
+          }}
+        >
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1.5,
+              color: "rgba(248,250,252,0.9)",
+              minWidth: 110,
+              flexWrap: "wrap"
+            }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Box
+                sx={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  backgroundColor:
+                    statusLabel === "Live"
+                      ? "#22c55e"
+                      : statusLabel === "Reconnecting"
+                      ? "#f59e0b"
+                      : statusLabel === "Error"
+                      ? "#ef4444"
+                      : "rgba(148, 163, 184, 0.8)"
+                }}
+              />
+              <Box sx={{ fontSize: 12, fontWeight: 600 }}>{statusLabel}</Box>
+            </Box>
+            {hasAiGreeted ? <CallTimer remainingSeconds={remainingSeconds} /> : null}
+          </Box>
+          <CallControls
+            isMicMuted={isMicMuted}
+            statusLabel={statusLabel}
+            onToggleMic={toggleMic}
+            onEndSession={endSession}
+            disabled={status !== "connected"}
+          />
+          <Box />
+        </Box>
+      </Box>
     </Box>
   );
 };

@@ -1,4 +1,4 @@
-import { Box, Button, Stack, Typography } from "@mui/material";
+import { Box, Button } from "@mui/material";
 import MicIcon from "@mui/icons-material/Mic";
 import MicOffIcon from "@mui/icons-material/MicOff";
 import CallEndIcon from "@mui/icons-material/CallEnd";
@@ -11,7 +11,7 @@ type CallControlsProps = {
   disabled?: boolean;
 };
 
-  const CallControls = ({ isMicMuted, statusLabel, onToggleMic, onEndSession, disabled }: CallControlsProps) => {
+const CallControls = ({ isMicMuted, statusLabel, onToggleMic, onEndSession, disabled }: CallControlsProps) => {
     const handleEnd = () => {
       if (window.confirm("End this interview now? This will stop the call and finalize the report.")) {
         onEndSession();
@@ -20,27 +20,16 @@ type CallControlsProps = {
   return (
     <Box
       sx={{
-        position: "fixed",
-        bottom: 20,
-        left: "50%",
-        transform: "translateX(-50%)",
+        position: "relative",
         display: "flex",
         alignItems: "center",
         gap: 3,
-        px: 3,
-        py: 1.5,
-        borderRadius: 999,
-        backgroundColor: "rgba(15, 23, 42, 0.7)",
-        border: "1px solid rgba(148, 163, 184, 0.2)",
-        zIndex: 10,
-        width: "fit-content"
+        px: 0,
+        py: 0,
+        width: "fit-content",
+        margin: "0 auto"
       }}
     >
-      <Stack spacing={0.5} alignItems="center">
-        <Typography variant="caption" color="rgba(248,250,252,0.7)">
-          {statusLabel}
-        </Typography>
-      </Stack>
       <Button
         variant="outlined"
         color="inherit"

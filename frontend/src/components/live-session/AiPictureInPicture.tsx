@@ -10,12 +10,13 @@ const AiPictureInPicture = ({ isSpeaking }: AiPictureInPictureProps) => {
       sx={{
         position: "absolute",
         right: 24,
-        bottom: 20,
+        bottom: 96,
         width: 220,
         p: 2,
-        backgroundColor: "rgba(15, 23, 42, 0.92)",
+        backgroundColor: "rgba(15, 23, 42, 0.75)",
         border: "1px solid rgba(148, 163, 184, 0.2)",
-        boxShadow: "0 20px 40px rgba(15, 23, 42, 0.4)"
+        borderRadius: 1,
+        backdropFilter: "blur(8px)"
       }}
     >
       <Stack spacing={2} alignItems="center">
@@ -35,7 +36,7 @@ const AiPictureInPicture = ({ isSpeaking }: AiPictureInPictureProps) => {
         </Box>
         <Stack spacing={0.5} alignItems="center">
           <Typography variant="subtitle2" color="white">
-            Interview AI
+            MyPitch AI
           </Typography>
           <Typography variant="caption" color="rgba(248,250,252,0.7)">
             {isSpeaking ? "Speaking" : "Listening"}
