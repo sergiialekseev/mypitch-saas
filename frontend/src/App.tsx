@@ -11,7 +11,6 @@ import JobDetailPage from "./pages/JobDetailPage";
 import JobsEditPage from "./pages/JobsEditPage";
 import CandidateInvitePage from "./pages/interview/CandidateInvitePage";
 import CandidateLivePage from "./pages/interview/CandidateLivePage";
-import CandidateReportPage from "./pages/interview/CandidateReportPage";
 import CandidateThanksPage from "./pages/interview/CandidateThanksPage";
 import DeviceSetupPage from "./pages/interview/DeviceSetupPage";
 import ProtectedRoute from "./routes/ProtectedRoute";
@@ -57,7 +56,6 @@ const App = () => {
         <Route path="/c/:inviteId" element={<CandidateInvitePage />} />
         <Route path="/c/:inviteId/setup" element={<DeviceSetupPage />} />
         <Route path="/c/:inviteId/live/:sessionId" element={<CandidateLivePage />} />
-        <Route path="/c/:inviteId/report/:sessionId" element={<CandidateReportPage />} />
         <Route path="/c/:inviteId/thanks/:sessionId" element={<CandidateThanksPage />} />
         <Route path="/terms" element={<LegalTermsPage />} />
         <Route path="/privacy" element={<LegalPrivacyPage />} />

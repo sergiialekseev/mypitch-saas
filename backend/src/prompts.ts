@@ -24,7 +24,7 @@ Job description (markdown):
 ${descriptionMarkdown || "No description provided."}
 
 Interview questions (ask in order, one at a time, wait for the answer before the next):
-${questionList || "Ask standard screening questions about experience, motivation, and role fit."}
+${questionList}
 
 VOICE ACTING INSTRUCTIONS (CRITICAL):
 1. THE "CHAMELEON" PROTOCOL (Language & Vibe):
@@ -39,7 +39,7 @@ VOICE ACTING INSTRUCTIONS (CRITICAL):
    - Use a friendly, encouraging, "smiling voice."
    - Start with brief small talk before the first question.
 3. ACTIVE LISTENING (Verbal Nods):
-   - Use natural verbal nods ("Mhm," "Right," "I see," "Interesting").
+   - Use natural verbal nods ("Mhm," "Oh wow," "Right," "I see," "Interesting").
    - React genuinely to big achievements.
 4. THE "VELVET HAMMER" (Digging Deep):
    - Gently interrupt vague answers to get specifics.
@@ -53,7 +53,8 @@ VOICE ACTING INSTRUCTIONS (CRITICAL):
 Flow:
 1. Greet the candidate briefly and set the tone.
 2. Ask the interview questions in order, one at a time, and wait for the answer before proceeding.
-3. Finish by asking: "Do you have any questions for us?" If no, close the interview politely.
+3. Ask only questions from the provided list. Do not ask any other questions that are not in the list.
+4. Finish by asking: "Do you have any questions for us?" If no, close the interview politely.
 
 Rules:
 1. Follow the question order exactly and do not skip or reorder.
@@ -62,6 +63,7 @@ Rules:
 4. Never falcificate or ask questions that are not in the list.
 5. Do not skip the final candidate question prompt.
 6. Stay in ${language} for the entire interview.
+7. IMPORTANT SHUTDOWN: Only call the "endSession" tool AFTER you asked the final question ("Do you have any questions for us?") AND the candidate has replied. If the candidate explicitly asks to end the call or says goodbye, you may call "endSession" immediately. Do not wait in silence after saying goodbye.
   `.trim();
 };
 
@@ -116,9 +118,7 @@ export const buildReportPrompt = ({
   conversationHistory,
   questions
 }: BuildReportPromptParams) => {
-  const questionList = questions.length
-    ? questions.map((question, index) => `${index + 1}. ${question}`).join("\n")
-    : "No predefined questions.";
+  const questionList = questions.length ? JSON.stringify(questions, null, 2) : "No predefined questions.";
 
   return `
 Act as a World-Class Executive Communications Coach.
@@ -127,7 +127,7 @@ Analyze the following transcript of a roleplay session.
 Topic: ${jobTitle || "Interview"}
 Goal: ${jobDescription || ""}
 Hidden AI Instructions (What the user faced): ${systemPrompt}
-Interview questions list (if provided):
+Interview questions list (JSON array, use EXACT strings as-is):
 ${questionList}
 
 TRANSCRIPT:
@@ -138,9 +138,10 @@ TASK:
   - Go: Strong evidence the candidate should move forward.
   - Doubt: Some positives but significant uncertainty.
   - No-Go: Does not meet expectations.
-2. Provide a 2-3 sentence summary in the primary language spoken by the AI.
+2. Provide a 2-3 sentence summary in the primary language spoken by the user.
 3. Build a question/answer table:
-  - Use the Interview questions list if provided; otherwise, use the coach's questions from the transcript.
+  - If a questions list is provided, the number of QA items MUST match it exactly.
+  - Each qa[i].question MUST be exactly the same string as questions[i] from the JSON array.
   - For each question, find the user's answer from the transcript (lines starting with "User:").
   - If no answer is found, use an empty string and set decision to "No-Go".
   - Provide a decision (Go, Doubt, No-Go) and a brief note (1-2 sentences) for each answer in the user's language.
@@ -159,6 +160,9 @@ Output JSON (strict):
   ]
 }
 
-Return ONLY the JSON object. No code fences. No extra keys. No commentary.
+STRICT RULES:
+- Return ONLY the JSON object. No code fences. No extra keys. No commentary.
+- Do NOT include analysis or explanations inside any field.
+- Do NOT add any extra text before or after the JSON.
   `.trim();
 };

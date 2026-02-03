@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { GoogleGenAI, type LiveServerMessage, Modality } from "@google/genai";
+import { GoogleGenAI, type FunctionDeclaration, type LiveServerMessage, Modality } from "@google/genai";
 import { apiRequest } from "../../api/client";
 import { createAudioData, base64ToArrayBuffer, pcmToAudioBuffer } from "../../utils/audio-utils";
 import type { Topic } from "../../types";
@@ -7,15 +7,20 @@ import type { Topic } from "../../types";
 const LIVE_MODEL_ID = "gemini-2.5-flash-native-audio-preview-12-2025";
 const INTERVIEW_DURATION_SECONDS = 15 * 60;
 const LOG_PREFIX = "[LiveSession]";
+const END_SESSION_TOOL: FunctionDeclaration = {
+  name: "endSession",
+  description: "Ends the interview session when the conversation is naturally finished."
+};
 
 type UseLiveSessionParams = {
   topic: Topic;
   userName: string;
   sessionId: string;
   onReportReady: () => void;
+  onSessionEnd?: () => void;
 };
 
-export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: UseLiveSessionParams) => {
+export const useLiveSession = ({ topic, userName, sessionId, onReportReady, onSessionEnd }: UseLiveSessionParams) => {
   const [status, setStatus] = useState<"connecting" | "connected" | "error" | "disconnected" | "reconnecting" | "analyzing">(
     "connecting"
   );
@@ -37,6 +42,11 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
   const warningTimeoutRef = useRef<number | null>(null);
   const timerIntervalRef = useRef<number | null>(null);
   const reconnectingRef = useRef(false);
+  const shouldEndSessionRef = useRef(false);
+  const endRequestedRef = useRef(false);
+  const requestEndSessionRef = useRef<(source?: "user" | "ai") => void>(() => {});
+  const hasNotifiedEndRef = useRef(false);
+  const userTurnsRef = useRef(0);
 
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const outputAudioContextRef = useRef<AudioContext | null>(null);
@@ -49,6 +59,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
   const liveSessionRef = useRef<any | null>(null);
   const isSessionOpenRef = useRef(false);
   const isEndingRef = useRef(false);
+  const endSessionRef = useRef<() => void>(() => {});
   const sessionSeqRef = useRef(0);
   const retryCountRef = useRef(0);
   const currentUserTextRef = useRef<string>("");
@@ -207,6 +218,10 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
       sessionSeqRef.current = sessionSeq;
       const preserveState = reconnectingRef.current;
       reconnectingRef.current = false;
+      if (!preserveState) {
+        endRequestedRef.current = false;
+        hasNotifiedEndRef.current = false;
+      }
       try {
         console.info(LOG_PREFIX, "starting session", { sessionId, sessionSeq });
         setStatus("connecting");
@@ -243,6 +258,8 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
           warnedFiveRef.current = false;
           warnedTwoRef.current = false;
           autoEndedRef.current = false;
+          shouldEndSessionRef.current = false;
+          userTurnsRef.current = 0;
           if (warningTimeoutRef.current) {
             window.clearTimeout(warningTimeoutRef.current);
             warningTimeoutRef.current = null;
@@ -278,7 +295,8 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
               voiceConfig: { prebuiltVoiceConfig: { voiceName: topic.voice || "Kore" } }
             },
             inputAudioTranscription: {},
-            outputAudioTranscription: {}
+            outputAudioTranscription: {},
+            tools: [{ functionDeclarations: [END_SESSION_TOOL] }]
           },
           callbacks: {
             onopen: () => {
@@ -322,6 +340,55 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
             },
             onmessage: async (message: LiveServerMessage) => {
               if (!mounted || sessionSeqRef.current !== sessionSeq) return;
+              if (message.toolCall?.functionCalls?.length) {
+                const endCall = message.toolCall.functionCalls.find((call) => call.name === "endSession");
+                if (endCall && !shouldEndSessionRef.current) {
+                  if (userTurnsRef.current === 0) {
+                    console.info(LOG_PREFIX, "toolCall endSession ignored (no user turn yet)");
+                    const functionResponses = message.toolCall.functionCalls.map((call) => ({
+                      id: call.id,
+                      name: call.name,
+                      response: { result: "Interview not finished yet. Continue the interview." }
+                    }));
+                    const sendResponse = (session: any) => {
+                      try {
+                        session.sendToolResponse({ functionResponses });
+                      } catch (error) {
+                        console.error(LOG_PREFIX, "failed to send tool response", error);
+                      }
+                    };
+                    if (liveSessionRef.current) {
+                      sendResponse(liveSessionRef.current);
+                    } else if (currentSessionRef.current) {
+                      currentSessionRef.current.then(sendResponse).catch(() => undefined);
+                    }
+                    return;
+                  }
+                  shouldEndSessionRef.current = true;
+                  endRequestedRef.current = true;
+                  console.info(LOG_PREFIX, "toolCall endSession received");
+                  const functionResponses = message.toolCall.functionCalls.map((call) => ({
+                    id: call.id,
+                    name: call.name,
+                    response: { result: "Session ending." }
+                  }));
+                  const sendResponse = (session: any) => {
+                    try {
+                      session.sendToolResponse({ functionResponses });
+                    } catch (error) {
+                      console.error(LOG_PREFIX, "failed to send tool response", error);
+                    }
+                  };
+                  if (liveSessionRef.current) {
+                    sendResponse(liveSessionRef.current);
+                  } else if (currentSessionRef.current) {
+                    currentSessionRef.current.then(sendResponse).catch(() => undefined);
+                  }
+                  if (scheduledSourcesRef.current.size === 0 && !isAiSpeaking) {
+                    requestEndSession("ai");
+                  }
+                }
+              }
               const serverContent = message.serverContent;
               if (serverContent) {
                 if (serverContent.inputTranscription) {
@@ -340,6 +407,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
                   if (currentUserTextRef.current.trim()) {
                     const text = currentUserTextRef.current.trim();
                     currentUserTextRef.current = "";
+                    userTurnsRef.current += 1;
                     await sendTranscript("user", text);
                   }
                   if (currentAiTextRef.current.trim()) {
@@ -399,6 +467,10 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
                     scheduledSourcesRef.current.delete(source);
                     if (scheduledSourcesRef.current.size === 0) {
                       setIsAiSpeaking(false);
+                      if (shouldEndSessionRef.current) {
+                        shouldEndSessionRef.current = false;
+                        requestEndSession("ai");
+                      }
                     }
                   };
                 } catch (err) {
@@ -411,6 +483,32 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
               if (sessionSeqRef.current !== sessionSeq) return;
               isSessionOpenRef.current = false;
               liveSessionRef.current = null;
+              const closeCode = event?.code;
+              const closeReason = event?.reason || "";
+              const shouldFinalize =
+                endRequestedRef.current || isEndingRef.current || statusRef.current === "analyzing";
+              if (shouldFinalize) {
+                if (!isEndingRef.current && statusRef.current !== "analyzing") {
+                  console.info(LOG_PREFIX, "socket closed after end request, finalizing");
+                  endSessionRef.current();
+                }
+                return;
+              }
+              if (closeCode === 1008) {
+                console.warn(LOG_PREFIX, "socket closed with policy error, stopping reconnect", {
+                  code: closeCode,
+                  reason: closeReason
+                });
+                if (!endRequestedRef.current) {
+                  endRequestedRef.current = true;
+                  requestEndSessionRef.current("ai");
+                  if (!endRequestedRef.current) {
+                    setStatus("error");
+                    setErrorMessage("Session ended unexpectedly. Please refresh to start again.");
+                  }
+                }
+                return;
+              }
               if (mounted && !isEndingRef.current && statusRef.current !== "analyzing") {
                 if (retryCountRef.current < MAX_RETRIES) {
                   retryCountRef.current += 1;
@@ -428,7 +526,12 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
             },
             onerror: (err?: unknown) => {
               console.error(LOG_PREFIX, "socket error", err);
-              if (isEndingRef.current) return;
+              if (isEndingRef.current || statusRef.current === "analyzing") return;
+              if (endRequestedRef.current) {
+                console.warn(LOG_PREFIX, "socket error after end request, finalizing");
+                endSessionRef.current();
+                return;
+              }
               if (mounted && sessionSeqRef.current === sessionSeq) {
                 isSessionOpenRef.current = false;
                 liveSessionRef.current = null;
@@ -505,16 +608,48 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
     };
   }, [sessionId, stopAudio, topic, userName]);
 
-  const endSession = () => {
+  const endSession = useCallback(() => {
     if (statusRef.current === "analyzing") return;
     console.info(LOG_PREFIX, "endSession triggered");
     isEndingRef.current = true;
+    if (!hasNotifiedEndRef.current) {
+      hasNotifiedEndRef.current = true;
+      onSessionEnd?.();
+    }
     setStatus("analyzing");
     stopAudio();
     generateReport().finally(() => {
       isEndingRef.current = false;
+      endRequestedRef.current = false;
     });
-  };
+  }, [generateReport, onSessionEnd, stopAudio]);
+
+  useEffect(() => {
+    endSessionRef.current = endSession;
+  }, [endSession]);
+
+  const requestEndSession = useCallback(
+    (source: "user" | "ai" = "user") => {
+      if (statusRef.current === "analyzing") return;
+      endRequestedRef.current = true;
+      const confirmed = window.confirm("End this interview now? This will stop the call and finalize the report.");
+      if (!confirmed && source === "ai") {
+        shouldEndSessionRef.current = false;
+        endRequestedRef.current = false;
+        return;
+      }
+      if (confirmed) {
+        endSession();
+      } else {
+        endRequestedRef.current = false;
+      }
+    },
+    [endSession]
+  );
+
+  useEffect(() => {
+    requestEndSessionRef.current = requestEndSession;
+  }, [requestEndSession]);
 
   useEffect(() => {
     if (!hasAiGreeted || status !== "connected") {
@@ -611,6 +746,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
     hasAiGreeted,
     warningMessage,
     toggleMic,
+    requestEndSession,
     endSession
   };
 };

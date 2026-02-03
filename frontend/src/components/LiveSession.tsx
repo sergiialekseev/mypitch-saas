@@ -2,7 +2,6 @@ import { Paper, Stack } from "@mui/material";
 import type { Topic } from "../types";
 import LiveSessionControls from "./live-session/LiveSessionControls";
 import LiveSessionHeader from "./live-session/LiveSessionHeader";
-import LiveSessionBlockingOverlay from "./live-session/LiveSessionBlockingOverlay";
 import LiveSessionVisualizer from "./live-session/LiveSessionVisualizer";
 import { useLiveSession } from "./live-session/useLiveSession";
 
@@ -22,12 +21,11 @@ const LiveSession = ({ topic, userName, sessionId, onReportReady }: LiveSessionP
     isUserSpeaking,
     isMicMuted,
     toggleMic,
-    endSession
+    requestEndSession
   } = useLiveSession({ topic, userName, sessionId, onReportReady });
 
   return (
     <Paper sx={{ p: 4, position: "relative", overflow: "hidden" }}>
-      <LiveSessionBlockingOverlay active={status === "analyzing"} />
       <Stack spacing={3}>
         <LiveSessionHeader
           title={topic.title}
@@ -42,7 +40,12 @@ const LiveSession = ({ topic, userName, sessionId, onReportReady }: LiveSessionP
           isUserSpeaking={isUserSpeaking}
           isMicMuted={isMicMuted}
         />
-        <LiveSessionControls status={status} isMicMuted={isMicMuted} onToggleMic={toggleMic} onEndSession={endSession} />
+        <LiveSessionControls
+          status={status}
+          isMicMuted={isMicMuted}
+          onToggleMic={toggleMic}
+          onEndSession={requestEndSession}
+        />
       </Stack>
     </Paper>
   );

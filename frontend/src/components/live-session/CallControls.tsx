@@ -12,11 +12,6 @@ type CallControlsProps = {
 };
 
 const CallControls = ({ isMicMuted, statusLabel, onToggleMic, onEndSession, disabled }: CallControlsProps) => {
-    const handleEnd = () => {
-      if (window.confirm("End this interview now? This will stop the call and finalize the report.")) {
-        onEndSession();
-      }
-    };
   return (
     <Box
       sx={{
@@ -44,7 +39,7 @@ const CallControls = ({ isMicMuted, statusLabel, onToggleMic, onEndSession, disa
         variant="contained"
         color="error"
         startIcon={<CallEndIcon />}
-        onClick={handleEnd}
+        onClick={onEndSession}
         disabled={disabled}
       >
         End

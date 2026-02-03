@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, Box, Stack, Typography } from "@mui/material";
 import { useNavigate, useParams } from "react-router-dom";
 import { apiRequest } from "../../api/client";
-import LiveSessionBlockingOverlay from "../../components/live-session/LiveSessionBlockingOverlay";
 import LiveSessionIntroOverlay from "../../components/live-session/LiveSessionIntroOverlay";
 import { useLiveSession } from "../../components/live-session/useLiveSession";
 import LocalVideoPane from "../../components/live-session/LocalVideoPane";
@@ -41,12 +40,15 @@ const CandidateLiveCall = ({ inviteId, sessionId, context, topic }: CandidateLiv
     remainingSeconds,
     warningMessage,
     toggleMic,
-    endSession
+    requestEndSession
   } = useLiveSession({
     topic,
     userName: context.candidate.name,
     sessionId,
     onReportReady: () => {
+      // Report generation is server-side; candidate doesn't need to wait.
+    },
+    onSessionEnd: () => {
       if (inviteId) {
         navigate(`/c/${inviteId}/thanks/${sessionId}`);
       }
@@ -79,7 +81,6 @@ const CandidateLiveCall = ({ inviteId, sessionId, context, topic }: CandidateLiv
         overflow: "hidden"
       }}
     >
-      <LiveSessionBlockingOverlay active={status === "analyzing"} />
       <LiveSessionIntroOverlay active={showIntroOverlay} />
       <Stack spacing={2} sx={{ height: "100%" }}>
         <Box sx={{ position: "relative", flex: 1, minHeight: 0 }}>
@@ -179,7 +180,7 @@ const CandidateLiveCall = ({ inviteId, sessionId, context, topic }: CandidateLiv
             isMicMuted={isMicMuted}
             statusLabel={statusLabel}
             onToggleMic={toggleMic}
-            onEndSession={endSession}
+            onEndSession={requestEndSession}
             disabled={status !== "connected"}
           />
           <Box />

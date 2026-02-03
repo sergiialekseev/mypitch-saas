@@ -777,6 +777,35 @@ app.post("/api/v1/sessions/:sessionId/transcripts", async (req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/api/v1/sessions/:sessionId/transcripts", requireAuth, async (req, res) => {
+  const recruiterId = getRecruiterId(res);
+  const sessionRef = db.collection("sessions").doc(req.params.sessionId);
+  const sessionSnap = await sessionRef.get();
+
+  if (!sessionSnap.exists || sessionSnap.data()?.recruiterId !== recruiterId) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  const transcriptsSnap = await db
+    .collection("transcripts")
+    .where("sessionId", "==", sessionRef.id)
+    .orderBy("createdAt", "asc")
+    .get();
+
+  const transcripts = transcriptsSnap.docs.map((docSnap) => {
+    const data = docSnap.data() || {};
+    return {
+      id: docSnap.id,
+      role: data.role || "",
+      text: data.text || "",
+      createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : null
+    };
+  });
+
+  res.json({ transcripts });
+});
+
 app.get("/api/v1/sessions/:sessionId/gemini-token", async (req, res) => {
   const sessionRef = db.collection("sessions").doc(req.params.sessionId);
   const sessionSnap = await sessionRef.get();

@@ -6,9 +6,14 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   Paper,
   Stack,
+  Snackbar,
   Table,
   TableBody,
   TableCell,
@@ -19,7 +24,9 @@ import {
 } from "@mui/material";
 import { Link as RouterLink, useParams } from "react-router-dom";
 import { apiRequest } from "../api/client";
+import { getSessionTranscripts, type SessionTranscript } from "../api/transcripts";
 import type { Report } from "../types";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 
 type CandidateResultPayload = {
   job: { id: string; title: string };
@@ -33,6 +40,11 @@ const CandidateResultPage = () => {
   const [payload, setPayload] = useState<CandidateResultPayload | null>(null);
   const [status, setStatus] = useState<"loading" | "pending" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
+  const [conversationOpen, setConversationOpen] = useState(false);
+  const [transcripts, setTranscripts] = useState<SessionTranscript[]>([]);
+  const [transcriptsStatus, setTranscriptsStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [transcriptsError, setTranscriptsError] = useState<string | null>(null);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const attemptsRef = useRef(0);
   const MAX_ATTEMPTS = 40;
   const POLL_INTERVAL_MS = 3000;
@@ -72,6 +84,40 @@ const CandidateResultPage = () => {
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
   }, [loadReport, status]);
+
+  const loadTranscripts = useCallback(async () => {
+    if (!payload?.session.id) return;
+    setTranscriptsStatus("loading");
+    setTranscriptsError(null);
+    try {
+      const data = await getSessionTranscripts(payload.session.id);
+      setTranscripts(data.transcripts || []);
+      setTranscriptsStatus("ready");
+    } catch (err) {
+      setTranscriptsStatus("error");
+      setTranscriptsError(err instanceof Error ? err.message : "Transcript not available.");
+    }
+  }, [payload?.session.id]);
+
+  useEffect(() => {
+    if (!conversationOpen) return;
+    if (transcriptsStatus === "idle") {
+      loadTranscripts();
+    }
+  }, [conversationOpen, loadTranscripts, transcriptsStatus]);
+
+  const handleCopyConversation = useCallback(async () => {
+    if (!transcripts.length) return;
+    const text = transcripts
+      .map((entry) => `${entry.role === "user" ? "Candidate" : "Interview AI"}: ${entry.text}`)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyNotice("Conversation copied.");
+    } catch (err) {
+      setCopyNotice("Copy failed.");
+    }
+  }, [transcripts]);
 
   const breadcrumbs = useMemo(() => {
     return (
@@ -129,9 +175,27 @@ const CandidateResultPage = () => {
   return (
     <Stack spacing={3}>
       {breadcrumbs}
-      <Box>
-        <Typography variant="h4">{payload.candidate.name}</Typography>
-        <Typography color="text.secondary">{payload.candidate.email}</Typography>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 2
+        }}
+      >
+        <Box>
+          <Typography variant="h4">{payload.candidate.name}</Typography>
+          <Typography color="text.secondary">{payload.candidate.email}</Typography>
+        </Box>
+        <Button
+          variant="outlined"
+          size="small"
+          onClick={() => setConversationOpen(true)}
+          sx={{ alignSelf: "center" }}
+        >
+          View conversation
+        </Button>
       </Box>
 
       <Paper
@@ -157,7 +221,7 @@ const CandidateResultPage = () => {
           >
             <Box>
               <Typography variant="h6" sx={{ color: "inherit" }}>
-                Summary
+                Report summary
               </Typography>
               <Typography
                 variant="subtitle1"
@@ -245,6 +309,83 @@ const CandidateResultPage = () => {
           )}
         </Stack>
       </Paper>
+
+      <Dialog open={conversationOpen} onClose={() => setConversationOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle>Full interview conversation</DialogTitle>
+        <DialogContent dividers sx={{ minHeight: 200 }}>
+          {transcriptsStatus === "loading" ? (
+            <Stack alignItems="center" spacing={2} sx={{ py: 4 }}>
+              <CircularProgress size={24} />
+              <Typography color="text.secondary">Loading conversation...</Typography>
+            </Stack>
+          ) : transcriptsStatus === "error" ? (
+            <Alert severity="error">{transcriptsError || "Transcript not available."}</Alert>
+          ) : transcripts.length ? (
+            <Stack spacing={1.5}>
+              {transcripts.map((entry) => {
+                const isUser = entry.role === "user";
+                return (
+                  <Box
+                    key={entry.id}
+                    sx={{
+                      display: "flex",
+                      justifyContent: isUser ? "flex-end" : "flex-start"
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        maxWidth: "78%",
+                        px: 2,
+                        py: 1.25,
+                        borderRadius: 2,
+                        backgroundColor: isUser ? "rgba(59, 130, 246, 0.12)" : "rgba(15, 23, 42, 0.06)",
+                        border: "1px solid",
+                        borderColor: isUser ? "rgba(59, 130, 246, 0.25)" : "rgba(148, 163, 184, 0.25)"
+                      }}
+                    >
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          textTransform: "uppercase",
+                          letterSpacing: 0.6,
+                          fontWeight: 700,
+                          color: "text.secondary",
+                          fontSize: "0.65rem"
+                        }}
+                      >
+                        {isUser ? "Candidate" : "Interview AI"}
+                      </Typography>
+                      <Typography sx={{ mt: 0.5, fontSize: "0.85rem", lineHeight: 1.4 }}>{entry.text}</Typography>
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Stack>
+          ) : (
+            <Typography color="text.secondary">No conversation data available.</Typography>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={() => setConversationOpen(false)} variant="outlined">
+            Close
+          </Button>
+          <Button
+            onClick={handleCopyConversation}
+            variant="contained"
+            startIcon={<ContentCopyIcon />}
+            disabled={!transcripts.length}
+          >
+            Copy conversation
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={Boolean(copyNotice)}
+        autoHideDuration={2500}
+        onClose={() => setCopyNotice(null)}
+        message={copyNotice || ""}
+      />
     </Stack>
   );
 };

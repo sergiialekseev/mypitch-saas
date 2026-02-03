@@ -15,6 +15,14 @@
         { "fieldPath": "jobId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "transcripts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
