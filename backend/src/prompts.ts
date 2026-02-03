@@ -108,7 +108,7 @@ ${rawInput}
 
 `.trim();
 
-//report generation schema (summary/score/qa)
+//report generation schema (summary/overallDecision/qa)
 export const buildReportPrompt = ({
   jobTitle,
   jobDescription,
@@ -134,17 +134,31 @@ TRANSCRIPT:
 ${conversationHistory}
 
 TASK:
-1. Provide an overall performance quality tier (Fail, Partial, Pass).
-  - Fail: The candidate did not meet the basic expectations for the roleplay.
-  - Partial: The candidate met some expectations but fell short in key areas.
-  - Pass: The candidate met or exceeded all expectations for the roleplay.
-2. Provide a 2-3 sentence summary in the primary language spoken by the user.
+1. Provide an overall decision (Go, Doubt, No-Go) based on the answers.
+  - Go: Strong evidence the candidate should move forward.
+  - Doubt: Some positives but significant uncertainty.
+  - No-Go: Does not meet expectations.
+2. Provide a 2-3 sentence summary in the primary language spoken by the AI.
 3. Build a question/answer table:
   - Use the Interview questions list if provided; otherwise, use the coach's questions from the transcript.
   - For each question, find the user's answer from the transcript (lines starting with "User:").
-  - If no answer is found, use an empty string and score 0 for that question.
-  - Provide a quality tier (Fail, Partial, Pass) for each answer.
+  - If no answer is found, use an empty string and set decision to "No-Go".
+  - Provide a decision (Go, Doubt, No-Go) and a brief note (1-2 sentences) for each answer in the user's language.
 
-Output JSON matching the schema.
+Output JSON (strict):
+{
+  "summary": "string",
+  "overallDecision": "Go | Doubt | No-Go",
+  "qa": [
+    {
+      "question": "string",
+      "answer": "string",
+      "decision": "Go | Doubt | No-Go",
+      "note": "string"
+    }
+  ]
+}
+
+Return ONLY the JSON object. No code fences. No extra keys. No commentary.
   `.trim();
 };

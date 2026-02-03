@@ -34,7 +34,7 @@ type CandidateResult = {
   sessionId: string;
   sessionStatus: string;
   reportId?: string | null;
-  score?: number | null;
+  decision?: "Go" | "Doubt" | "No-Go" | null;
   reportCreatedAt?: string | null;
 };
 
@@ -54,7 +54,7 @@ const JobDetailPage = () => {
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [actionAnchorEl, setActionAnchorEl] = useState<null | HTMLElement>(null);
   const [actionCandidateId, setActionCandidateId] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<"name" | "status" | "report" | "score">("name");
+  const [sortKey, setSortKey] = useState<"name" | "status" | "report" | "decision">("name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const candidateNameRef = useRef<HTMLInputElement | null>(null);
   const publicAppUrl = import.meta.env.VITE_PUBLIC_APP_URL || window.location.origin;
@@ -118,8 +118,9 @@ const JobDetailPage = () => {
       const resultB = resultByCandidate.get(b.id);
       const reportA = resultA?.reportId ? 1 : 0;
       const reportB = resultB?.reportId ? 1 : 0;
-      const scoreA = resultA?.score ?? -1;
-      const scoreB = resultB?.score ?? -1;
+      const decisionRank: Record<string, number> = { "No-Go": 0, Doubt: 1, Go: 2 };
+      const decisionA = resultA?.decision ? decisionRank[resultA.decision] ?? -1 : -1;
+      const decisionB = resultB?.decision ? decisionRank[resultB.decision] ?? -1 : -1;
 
       let compare = 0;
       switch (sortKey) {
@@ -132,8 +133,8 @@ const JobDetailPage = () => {
         case "report":
           compare = reportA - reportB;
           break;
-        case "score":
-          compare = scoreA - scoreB;
+        case "decision":
+          compare = decisionA - decisionB;
           break;
         default:
           compare = 0;
@@ -204,7 +205,7 @@ const JobDetailPage = () => {
     setActionCandidateId(null);
   };
 
-  const handleSort = (key: "name" | "status" | "report" | "score") => {
+  const handleSort = (key: "name" | "status" | "report" | "decision") => {
     if (sortKey === key) {
       setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
       return;
@@ -293,13 +294,13 @@ const JobDetailPage = () => {
                         Status
                       </TableSortLabel>
                     </TableCell>
-                    <TableCell sortDirection={sortKey === "score" ? sortDirection : false}>
+                    <TableCell sortDirection={sortKey === "decision" ? sortDirection : false}>
                       <TableSortLabel
-                        active={sortKey === "score"}
-                        direction={sortKey === "score" ? sortDirection : "asc"}
-                        onClick={() => handleSort("score")}
+                        active={sortKey === "decision"}
+                        direction={sortKey === "decision" ? sortDirection : "asc"}
+                        onClick={() => handleSort("decision")}
                       >
-                        Score
+                        Decision
                       </TableSortLabel>
                     </TableCell>
                     <TableCell sortDirection={sortKey === "report" ? sortDirection : false}>
@@ -317,7 +318,7 @@ const JobDetailPage = () => {
                 <TableBody>
                   {sortedCandidates.map((candidate) => {
                     const result = resultByCandidate.get(candidate.id);
-                    const scoreValue = result?.score ?? null;
+                    const decisionValue = result?.decision ?? null;
                     return (
                       <TableRow key={candidate.id} hover>
                         <TableCell>{candidate.name}</TableCell>
@@ -325,7 +326,18 @@ const JobDetailPage = () => {
                         <TableCell>
                           <Chip label={candidate.status} variant="outlined" size="small" />
                         </TableCell>
-                        <TableCell>{scoreValue === null ? "-" : scoreValue}</TableCell>
+                        <TableCell>
+                          {decisionValue ? (
+                            <Chip
+                              size="small"
+                              label={decisionValue}
+                              color={decisionValue === "Go" ? "success" : decisionValue === "Doubt" ? "warning" : "default"}
+                              variant={decisionValue === "No-Go" ? "outlined" : "filled"}
+                            />
+                          ) : (
+                            "-"
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Chip
                             label={result?.reportId ? "Ready" : "Pending"}

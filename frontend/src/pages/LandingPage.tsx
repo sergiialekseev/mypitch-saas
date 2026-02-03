@@ -18,7 +18,7 @@ const capabilities = [
   },
   {
     title: "Instant reporting",
-    description: "Generate interview summaries, Q&A transcripts, and scores in seconds."
+    description: "Generate interview summaries, Q&A transcripts, and decisions in seconds."
   },
   {
     title: "Team visibility",
@@ -40,7 +40,7 @@ const outcomes = [
   {
     title: "Clearer decisions",
     value: "1 place",
-    description: "Interview insights, scores, and Q&A in one report."
+    description: "Interview insights, decisions, and Q&A in one report."
   }
 ];
 
@@ -55,7 +55,7 @@ const steps = [
   },
   {
     title: "Review reports",
-    description: "Get summaries, scores, and Q&A tables instantly."
+    description: "Get summaries, decisions, and Q&A tables instantly."
   }
 ];
 

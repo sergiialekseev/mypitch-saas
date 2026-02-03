@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Box,
+  Chip,
   CircularProgress,
   Container,
   Paper,
@@ -108,8 +109,17 @@ const CandidateReportPage = () => {
           <Stack spacing={2}>
             <Typography variant="h6">Summary</Typography>
             <Typography>{report.summary || "—"}</Typography>
-            <Typography variant="h6">Overall score</Typography>
-            <Typography variant="h3">{report.score ?? "—"}</Typography>
+            <Typography variant="h6">Overall decision</Typography>
+            {report.overallDecision ? (
+              <Chip
+                label={report.overallDecision}
+                color={report.overallDecision === "Go" ? "success" : report.overallDecision === "Doubt" ? "warning" : "default"}
+                variant={report.overallDecision === "No-Go" ? "outlined" : "filled"}
+                sx={{ fontSize: 18, px: 1.5, py: 2 }}
+              />
+            ) : (
+              <Typography variant="h4">—</Typography>
+            )}
           </Stack>
         </Paper>
 
@@ -119,23 +129,36 @@ const CandidateReportPage = () => {
             {report.qa?.length ? (
               <TableContainer>
                 <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Question</TableCell>
-                      <TableCell>Answer</TableCell>
-                      <TableCell align="right">Score</TableCell>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Question</TableCell>
+                    <TableCell>Answer</TableCell>
+                    <TableCell>Decision</TableCell>
+                    <TableCell>Note</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {report.qa.map((item, index) => (
+                    <TableRow key={`${item.question}-${index}`}>
+                      <TableCell sx={{ width: "30%" }}>{item.question}</TableCell>
+                      <TableCell sx={{ width: "35%" }}>{item.answer || "—"}</TableCell>
+                      <TableCell sx={{ width: "15%" }}>
+                        {item.decision ? (
+                          <Chip
+                            size="small"
+                            label={item.decision}
+                            color={item.decision === "Go" ? "success" : item.decision === "Doubt" ? "warning" : "default"}
+                            variant={item.decision === "No-Go" ? "outlined" : "filled"}
+                          />
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell>{item.note || "—"}</TableCell>
                     </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {report.qa.map((item, index) => (
-                      <TableRow key={`${item.question}-${index}`}>
-                        <TableCell sx={{ width: "35%" }}>{item.question}</TableCell>
-                        <TableCell>{item.answer || "—"}</TableCell>
-                        <TableCell align="right">{item.score ?? "—"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                  ))}
+                </TableBody>
+              </Table>
               </TableContainer>
             ) : (
               <Typography color="text.secondary">No question/answer data available.</Typography>

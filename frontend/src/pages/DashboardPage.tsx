@@ -23,7 +23,7 @@ type CandidateResult = {
   sessionId: string;
   sessionStatus: string;
   reportId?: string | null;
-  score?: number | null;
+  decision?: "Go" | "Doubt" | "No-Go" | null;
   reportCreatedAt?: string | null;
 };
 
@@ -88,8 +88,13 @@ const DashboardPage = () => {
   }, [candidates]);
 
   const reportsReady = results.filter((result) => result.reportId).length;
-  const scores = results.map((result) => result.score).filter((score): score is number => typeof score === "number");
-  const avgScore = scores.length ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length) : 0;
+  const decisionCounts = results.reduce<Record<string, number>>((acc, result) => {
+    if (result.decision) {
+      acc[result.decision] = (acc[result.decision] || 0) + 1;
+    }
+    return acc;
+  }, {});
+  const goDecisions = decisionCounts.Go || 0;
 
   const jobById = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
   const candidateById = useMemo(() => new Map(candidates.map((candidate) => [candidate.id, candidate])), [candidates]);
@@ -164,7 +169,7 @@ const DashboardPage = () => {
           { label: "Open roles", value: jobsByStatus.open || 0, icon: <PersonSearchIcon color="primary" /> },
           { label: "Invites sent", value: invites.length, icon: <TrendingUpIcon color="primary" /> },
           { label: "Reports ready", value: reportsReady, icon: <CheckCircleIcon color="primary" /> },
-          { label: "Avg score", value: avgScore ? `${avgScore}/100` : "—", icon: <AutoGraphIcon color="primary" /> }
+          { label: "Go decisions", value: goDecisions, icon: <AutoGraphIcon color="primary" /> }
         ].map((stat) => (
           <Grid item xs={12} sm={6} lg={3} key={stat.label}>
             <Paper
@@ -249,7 +254,7 @@ const DashboardPage = () => {
                         <Box key={report.sessionId} sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
                           <Chip size="small" label="Report" />
                           <Typography variant="body2">
-                            {candidate?.name || "Candidate"} scored {report.score ?? "—"} in {jobTitle || "a role"}
+                            {candidate?.name || "Candidate"} decision {report.decision ?? "—"} in {jobTitle || "a role"}
                           </Typography>
                         </Box>
                       );

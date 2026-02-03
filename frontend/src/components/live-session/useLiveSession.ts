@@ -36,6 +36,7 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
   const autoEndedRef = useRef(false);
   const warningTimeoutRef = useRef<number | null>(null);
   const timerIntervalRef = useRef<number | null>(null);
+  const reconnectingRef = useRef(false);
 
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const outputAudioContextRef = useRef<AudioContext | null>(null);
@@ -204,6 +205,8 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
     const startSession = async () => {
       const sessionSeq = sessionSeqRef.current + 1;
       sessionSeqRef.current = sessionSeq;
+      const preserveState = reconnectingRef.current;
+      reconnectingRef.current = false;
       try {
         console.info(LOG_PREFIX, "starting session", { sessionId, sessionSeq });
         setStatus("connecting");
@@ -229,22 +232,29 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
           outputAudioContextRef.current = null;
         }
 
-        currentUserTextRef.current = "";
-        currentAiTextRef.current = "";
-        setAiTranscript("");
-        setRemainingSeconds(INTERVIEW_DURATION_SECONDS);
-        setHasAiGreeted(false);
-        setWarningMessage(null);
-        hasAiGreetedRef.current = false;
-        warnedFiveRef.current = false;
-        warnedTwoRef.current = false;
-        autoEndedRef.current = false;
-        if (warningTimeoutRef.current) {
-          window.clearTimeout(warningTimeoutRef.current);
-          warningTimeoutRef.current = null;
+        if (!preserveState) {
+          currentUserTextRef.current = "";
+          currentAiTextRef.current = "";
+          setAiTranscript("");
+          setRemainingSeconds(INTERVIEW_DURATION_SECONDS);
+          setHasAiGreeted(false);
+          setWarningMessage(null);
+          hasAiGreetedRef.current = false;
+          warnedFiveRef.current = false;
+          warnedTwoRef.current = false;
+          autoEndedRef.current = false;
+          if (warningTimeoutRef.current) {
+            window.clearTimeout(warningTimeoutRef.current);
+            warningTimeoutRef.current = null;
+          }
+          console.info(LOG_PREFIX, "session state reset");
+        } else {
+          console.info(LOG_PREFIX, "reconnecting: preserving timer and transcript state");
         }
         aiTurnActiveRef.current = false;
-        hasSentGreetingRef.current = false;
+        if (!preserveState) {
+          hasSentGreetingRef.current = false;
+        }
 
         const ai = new GoogleGenAI({ apiKey: token, apiVersion: "v1alpha" });
 
@@ -396,13 +406,24 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
                 }
               }
             },
-            onclose: () => {
-              console.warn(LOG_PREFIX, "socket closed");
+            onclose: (event?: { code?: number; reason?: string }) => {
+              console.warn(LOG_PREFIX, "socket closed", event);
               if (sessionSeqRef.current !== sessionSeq) return;
               isSessionOpenRef.current = false;
               liveSessionRef.current = null;
               if (mounted && !isEndingRef.current && statusRef.current !== "analyzing") {
-                setStatus("disconnected");
+                if (retryCountRef.current < MAX_RETRIES) {
+                  retryCountRef.current += 1;
+                  setStatus("reconnecting");
+                  reconnectingRef.current = true;
+                  console.warn(LOG_PREFIX, "reconnecting after close", { attempt: retryCountRef.current });
+                  setTimeout(() => {
+                    if (mounted) startSession();
+                  }, 1000 * retryCountRef.current);
+                } else {
+                  setStatus("error");
+                  setErrorMessage("Service unavailable.");
+                }
               }
             },
             onerror: (err?: unknown) => {
@@ -414,6 +435,8 @@ export const useLiveSession = ({ topic, userName, sessionId, onReportReady }: Us
                 if (retryCountRef.current < MAX_RETRIES) {
                   retryCountRef.current += 1;
                   setStatus("reconnecting");
+                  reconnectingRef.current = true;
+                  console.warn(LOG_PREFIX, "reconnecting after error", { attempt: retryCountRef.current });
                   setTimeout(() => {
                     if (mounted) startSession();
                   }, 1000 * retryCountRef.current);

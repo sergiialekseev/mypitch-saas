@@ -316,7 +316,7 @@ app.get("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
         {
           id: docSnap.id,
           candidateId: data.candidateId,
-          score: typeof data.score === "number" ? data.score : null,
+          decision: typeof data.overallDecision === "string" ? data.overallDecision : null,
           createdAt: data.createdAt?.toDate().toISOString() || null
         }
       ];
@@ -330,7 +330,7 @@ app.get("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
       sessionId: session.id,
       sessionStatus: session.status,
       reportId: report?.id || null,
-      score: report?.score ?? null,
+      decision: report?.decision ?? null,
       reportCreatedAt: report?.createdAt || null
     };
   });
@@ -910,8 +910,12 @@ app.post("/api/v1/sessions/:sessionId/report/generate", async (req, res) => {
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            score: { type: Type.INTEGER, description: "Overall performance score 0-100" },
             summary: { type: Type.STRING, description: "2-3 sentence summary in the user's language" },
+            overallDecision: {
+              type: Type.STRING,
+              description: "Overall decision: Go, Doubt, or No-Go",
+              enum: ["Go", "Doubt", "No-Go"]
+            },
             qa: {
               type: Type.ARRAY,
               items: {
@@ -919,7 +923,12 @@ app.post("/api/v1/sessions/:sessionId/report/generate", async (req, res) => {
                 properties: {
                   question: { type: Type.STRING },
                   answer: { type: Type.STRING },
-                  score: { type: Type.INTEGER, description: "Answer score 0-100" }
+                  decision: {
+                    type: Type.STRING,
+                    description: "Answer decision: Go, Doubt, or No-Go",
+                    enum: ["Go", "Doubt", "No-Go"]
+                  },
+                  note: { type: Type.STRING, description: "Brief reasoning for the decision" }
                 }
               }
             }

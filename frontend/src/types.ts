@@ -41,12 +41,13 @@ export type Session = {
 
 export type Report = {
   id: string;
-  score?: number;
+  overallDecision?: "Go" | "Doubt" | "No-Go";
   summary?: string;
   qa?: {
     question: string;
     answer: string;
-    score: number;
+    decision: "Go" | "Doubt" | "No-Go";
+    note?: string;
   }[];
 };
 

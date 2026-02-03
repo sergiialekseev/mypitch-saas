@@ -3,6 +3,7 @@ import { Alert, Box, Stack, Typography } from "@mui/material";
 import { useNavigate, useParams } from "react-router-dom";
 import { apiRequest } from "../../api/client";
 import LiveSessionBlockingOverlay from "../../components/live-session/LiveSessionBlockingOverlay";
+import LiveSessionIntroOverlay from "../../components/live-session/LiveSessionIntroOverlay";
 import { useLiveSession } from "../../components/live-session/useLiveSession";
 import LocalVideoPane from "../../components/live-session/LocalVideoPane";
 import AiPictureInPicture from "../../components/live-session/AiPictureInPicture";
@@ -29,6 +30,7 @@ const LOGO_URL =
 
 const CandidateLiveCall = ({ inviteId, sessionId, context, topic }: CandidateLiveCallProps) => {
   const navigate = useNavigate();
+  const [introComplete, setIntroComplete] = useState(false);
   const {
     status,
     statusLabel,
@@ -37,7 +39,6 @@ const CandidateLiveCall = ({ inviteId, sessionId, context, topic }: CandidateLiv
     isMicMuted,
     aiTranscript,
     remainingSeconds,
-    hasAiGreeted,
     warningMessage,
     toggleMic,
     endSession
@@ -47,10 +48,25 @@ const CandidateLiveCall = ({ inviteId, sessionId, context, topic }: CandidateLiv
     sessionId,
     onReportReady: () => {
       if (inviteId) {
-        navigate(`/c/${inviteId}/report/${sessionId}`);
+        navigate(`/c/${inviteId}/thanks/${sessionId}`);
       }
     }
   });
+
+  useEffect(() => {
+    setIntroComplete(false);
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (introComplete) return;
+    if (status !== "connected") return;
+    const timeout = window.setTimeout(() => {
+      setIntroComplete(true);
+    }, 3000);
+    return () => window.clearTimeout(timeout);
+  }, [introComplete, status]);
+
+  const showIntroOverlay = !introComplete && (status === "connecting" || status === "connected" || status === "reconnecting");
 
   return (
     <Box
@@ -64,6 +80,7 @@ const CandidateLiveCall = ({ inviteId, sessionId, context, topic }: CandidateLiv
       }}
     >
       <LiveSessionBlockingOverlay active={status === "analyzing"} />
+      <LiveSessionIntroOverlay active={showIntroOverlay} />
       <Stack spacing={2} sx={{ height: "100%" }}>
         <Box sx={{ position: "relative", flex: 1, minHeight: 0 }}>
           <LocalVideoPane name={context.candidate.name} fill />
@@ -156,7 +173,7 @@ const CandidateLiveCall = ({ inviteId, sessionId, context, topic }: CandidateLiv
               />
               <Box sx={{ fontSize: 12, fontWeight: 600 }}>{statusLabel}</Box>
             </Box>
-            {hasAiGreeted ? <CallTimer remainingSeconds={remainingSeconds} /> : null}
+            {introComplete ? <CallTimer remainingSeconds={remainingSeconds} /> : null}
           </Box>
           <CallControls
             isMicMuted={isMicMuted}

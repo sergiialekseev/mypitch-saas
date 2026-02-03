@@ -27,7 +27,7 @@ const CallTranscriptBar = ({ text, statusLabel }: CallTranscriptBarProps) => {
         MyPitch AI:
       </Typography>
       <Typography variant="body2" color="rgba(248,250,252,0.9)">
-        {text || "AI is listening..."}
+        {text || "AI is speaking..."}
       </Typography>
     </Box>
   );
