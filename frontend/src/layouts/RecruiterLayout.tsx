@@ -16,6 +16,8 @@ import {
 import { useTheme } from "@mui/material/styles";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
+import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
+import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import MenuIcon from "@mui/icons-material/Menu";
 import { Link as RouterLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -33,7 +35,9 @@ const RecruiterLayout = () => {
   const menuItems = useMemo(
     () => [
       { label: "Dashboard", icon: <DashboardOutlinedIcon />, to: "/app/dashboard" },
-      { label: "Jobs", icon: <WorkOutlineIcon />, to: "/app/jobs" }
+      { label: "Jobs", icon: <WorkOutlineIcon />, to: "/app/jobs" },
+      { label: "Team", icon: <PeopleOutlineIcon />, to: "/app/team" },
+      { label: "Settings", icon: <SettingsOutlinedIcon />, to: "/app/settings" }
     ],
     []
   );

@@ -3,6 +3,7 @@ import crypto from "crypto";
 import express from "express";
 import cors from "cors";
 import { GoogleGenAI, Type } from "@google/genai";
+import sgMail from "@sendgrid/mail";
 import { applicationDefault, initializeApp } from "firebase-admin/app";
 import { getAuth, type DecodedIdToken } from "firebase-admin/auth";
 import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
@@ -31,8 +32,38 @@ const appBaseUrl = (process.env.PUBLIC_APP_URL || "http://localhost:5173").repla
 const inviteTtlDays = Number(process.env.INVITE_TTL_DAYS || 7);
 const liveModelId = process.env.GEMINI_LIVE_MODEL || "gemini-2.5-flash-native-audio-preview-12-2025";
 const allowedLanguages = new Set<string>(LANGUAGES);
+const sendgridApiKey = process.env.SENDGRID_API_KEY;
+const sendgridFromEmail = process.env.SENDGRID_FROM_EMAIL;
+const sendgridFromName = process.env.SENDGRID_FROM_NAME || "MyPitch";
+if (sendgridApiKey) {
+  sgMail.setApiKey(sendgridApiKey);
+}
+const GENERIC_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "yahoo.com",
+  "yahoo.co.uk",
+  "outlook.com",
+  "hotmail.com",
+  "icloud.com",
+  "aol.com",
+  "proton.me",
+  "protonmail.com",
+  "yandex.com",
+  "yandex.ru",
+  "mail.ru",
+  "gmx.com",
+  "gmx.de",
+  "zoho.com",
+  "qq.com",
+  "163.com",
+  "126.com",
+  "live.com",
+  "msn.com"
+]);
 
 const buildInviteLink = (inviteId: string) => `${appBaseUrl}/c/${inviteId}`;
+const buildCompanyInviteLink = (inviteId: string) => `${appBaseUrl}/invite/${inviteId}`;
 
 const getAuthToken = (req: express.Request) => {
   const header = req.headers.authorization || "";
@@ -65,6 +96,16 @@ const isInviteExpired = (expiresAt?: Timestamp) => {
 };
 
 const normalizeMarkdown = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
+const extractDomain = (value: string) => {
+  try {
+    const url = value.startsWith("http") ? new URL(value) : new URL(`https://${value}`);
+    const host = url.hostname.toLowerCase();
+    return host.startsWith("www.") ? host.slice(4) : host;
+  } catch {
+    return "";
+  }
+};
 
 const extractSummary = (markdown: string) => {
   if (!markdown) return "";
@@ -99,6 +140,64 @@ const createGeminiClient = () => new GoogleGenAI({ apiKey: getGeminiApiKey() });
 
 const createLiveTokenClient = () => new GoogleGenAI({ apiKey: getGeminiApiKey(), apiVersion: "v1alpha" });
 
+const sendInviteEmail = async ({
+  to,
+  companyName,
+  inviteLink,
+  inviterName
+}: {
+  to: string;
+  companyName: string;
+  inviteLink: string;
+  inviterName?: string;
+}) => {
+  if (!sendgridApiKey || !sendgridFromEmail) {
+    console.warn("SendGrid is not configured. Invite email not sent.");
+    return;
+  }
+  const safeInviter = inviterName ? `${inviterName} from ${companyName}` : companyName;
+  const subject = `You're invited to join ${companyName} on MyPitch.guru`;
+  const text = `${safeInviter} invited you to join ${companyName} on MyPitch.\n\nAccept your invite: ${inviteLink}`;
+  const html = `
+    <p>${safeInviter} invited you to join <strong>${companyName}</strong> on MyPitch.</p>
+    <p><a href="${inviteLink}">Accept your invite</a></p>
+  `;
+  await sgMail.send({
+    to,
+    from: { email: sendgridFromEmail, name: sendgridFromName },
+    subject,
+    text,
+    html
+  });
+};
+
+const getRecruiterProfile = async (recruiterId: string) => {
+  const recruiterSnap = await db.collection("recruiters").doc(recruiterId).get();
+  return recruiterSnap.exists ? recruiterSnap.data() || {} : {};
+};
+
+const canAccessCompanyData = (
+  ownerCompanyId: string | undefined,
+  recruiterId: string,
+  recruiterCompanyId?: string
+) => {
+  if (ownerCompanyId && recruiterCompanyId) {
+    return ownerCompanyId === recruiterCompanyId;
+  }
+  return false;
+};
+
+const canAccessJob = (
+  jobData: FirebaseFirestore.DocumentData,
+  recruiterId: string,
+  recruiterCompanyId?: string
+) => {
+  if (canAccessCompanyData(jobData.companyId, recruiterId, recruiterCompanyId)) {
+    return true;
+  }
+  return jobData.recruiterId === recruiterId;
+};
+
 const saveReport = async (sessionRef: FirebaseFirestore.DocumentReference, session: FirebaseFirestore.DocumentData, reportData: Record<string, unknown>) => {
   const now = Timestamp.now();
   const reportRef = db.collection("reports").doc(sessionRef.id);
@@ -106,6 +205,7 @@ const saveReport = async (sessionRef: FirebaseFirestore.DocumentReference, sessi
   await reportRef.set({
     sessionId: sessionRef.id,
     recruiterId: session.recruiterId,
+    companyId: session.companyId || "",
     candidateId: session.candidateId,
     jobId: session.jobId,
     createdAt: now,
@@ -125,6 +225,410 @@ app.get("/api/v1/meta/languages", requireAuth, (_req, res) => {
     languages: LANGUAGES,
     defaultLanguage: DEFAULT_LANGUAGE
   });
+});
+
+app.post("/api/v1/companies", requireAuth, async (req, res) => {
+  const recruiterId = getRecruiterId(res);
+  const authUser = res.locals.authUser as DecodedIdToken;
+  const email = authUser.email || "";
+  const { name, website, logoUrl } = req.body || {};
+
+  if (!email || !email.includes("@")) {
+    res.status(400).json({ error: "Valid email is required" });
+    return;
+  }
+
+  const emailDomain = email.split("@")[1]?.toLowerCase();
+  if (!emailDomain || GENERIC_EMAIL_DOMAINS.has(emailDomain)) {
+    res.status(400).json({ error: "Please use a work email (company domain)." });
+    return;
+  }
+
+  if (typeof name !== "string" || !name.trim()) {
+    res.status(400).json({ error: "Company name is required" });
+    return;
+  }
+
+  if (typeof website !== "string" || !website.trim()) {
+    res.status(400).json({ error: "Company website is required" });
+    return;
+  }
+
+  const domain = extractDomain(website);
+  if (!domain) {
+    res.status(400).json({ error: "Website must be a valid domain or URL" });
+    return;
+  }
+  if (domain !== emailDomain) {
+    res.status(400).json({ error: "Email domain must match the company website domain." });
+    return;
+  }
+
+  const recruiterRef = db.collection("recruiters").doc(recruiterId);
+  const recruiterSnap = await recruiterRef.get();
+  if (recruiterSnap.exists && recruiterSnap.data()?.companyId) {
+    res.status(409).json({ error: "Company already exists for this user" });
+    return;
+  }
+
+  const existingCompanySnap = await db
+    .collection("companies")
+    .where("domains", "array-contains", domain)
+    .limit(1)
+    .get();
+  if (!existingCompanySnap.empty) {
+    res.status(409).json({ error: "Company already exists for this domain. Request an invite to join." });
+    return;
+  }
+
+  const companyRef = db.collection("companies").doc();
+  const now = Timestamp.now();
+  await companyRef.set({
+    name: name.trim(),
+    website: website.trim(),
+    logoUrl: typeof logoUrl === "string" && logoUrl.trim() ? logoUrl.trim() : "",
+    domains: [domain],
+    createdAt: now,
+    createdBy: recruiterId
+  });
+
+  await recruiterRef.set(
+    {
+      email,
+      name: authUser.name || "",
+      companyId: companyRef.id,
+      createdAt: now
+    },
+    { merge: true }
+  );
+
+  res.json({
+    company: {
+      id: companyRef.id,
+      name: name.trim(),
+      website: website.trim(),
+      logoUrl: typeof logoUrl === "string" && logoUrl.trim() ? logoUrl.trim() : "",
+      domains: [domain]
+    }
+  });
+});
+
+app.get("/api/v1/companies/me", requireAuth, async (_req, res) => {
+  const recruiterId = getRecruiterId(res);
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  if (!recruiterProfile.companyId) {
+    res.status(404).json({ error: "Company not found" });
+    return;
+  }
+  const companySnap = await db.collection("companies").doc(recruiterProfile.companyId).get();
+  if (!companySnap.exists) {
+    res.status(404).json({ error: "Company not found" });
+    return;
+  }
+  const company = companySnap.data() || {};
+  res.json({
+    company: {
+      id: companySnap.id,
+      name: company.name || "",
+      website: company.website || "",
+      logoUrl: company.logoUrl || "",
+      domains: Array.isArray(company.domains) ? company.domains : []
+    }
+  });
+});
+
+app.put("/api/v1/companies/me", requireAuth, async (req, res) => {
+  const recruiterId = getRecruiterId(res);
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  if (!recruiterProfile.companyId) {
+    res.status(404).json({ error: "Company not found" });
+    return;
+  }
+  const { name, website, logoUrl } = req.body || {};
+  if (name !== undefined && (typeof name !== "string" || !name.trim())) {
+    res.status(400).json({ error: "Company name must be a non-empty string" });
+    return;
+  }
+  if (website !== undefined && (typeof website !== "string" || !website.trim())) {
+    res.status(400).json({ error: "Company website must be a non-empty string" });
+    return;
+  }
+
+  const updatePayload: Record<string, unknown> = {
+    updatedAt: Timestamp.now()
+  };
+  if (name !== undefined) updatePayload.name = name.trim();
+  if (website !== undefined) updatePayload.website = website.trim();
+  if (logoUrl !== undefined) updatePayload.logoUrl = typeof logoUrl === "string" ? logoUrl.trim() : "";
+
+  const companyRef = db.collection("companies").doc(recruiterProfile.companyId);
+  await companyRef.set(updatePayload, { merge: true });
+  const companySnap = await companyRef.get();
+  const company = companySnap.data() || {};
+
+  res.json({
+    company: {
+      id: companySnap.id,
+      name: company.name || "",
+      website: company.website || "",
+      logoUrl: company.logoUrl || "",
+      domains: Array.isArray(company.domains) ? company.domains : []
+    }
+  });
+});
+
+app.get("/api/v1/recruiters/me", requireAuth, async (_req, res) => {
+  const recruiterId = getRecruiterId(res);
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  res.json({
+    recruiter: {
+      id: recruiterId,
+      name: recruiterProfile.name || "",
+      title: recruiterProfile.title || "",
+      email: recruiterProfile.email || ""
+    }
+  });
+});
+
+app.put("/api/v1/recruiters/me", requireAuth, async (req, res) => {
+  const recruiterId = getRecruiterId(res);
+  const { name, title } = req.body || {};
+  if (name !== undefined && (typeof name !== "string" || !name.trim())) {
+    res.status(400).json({ error: "Recruiter name must be a non-empty string" });
+    return;
+  }
+  if (title !== undefined && typeof title !== "string") {
+    res.status(400).json({ error: "Recruiter title must be a string" });
+    return;
+  }
+
+  const updatePayload: Record<string, unknown> = {
+    updatedAt: Timestamp.now()
+  };
+  if (name !== undefined) updatePayload.name = name.trim();
+  if (title !== undefined) updatePayload.title = title.trim();
+
+  await db.collection("recruiters").doc(recruiterId).set(updatePayload, { merge: true });
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+
+  res.json({
+    recruiter: {
+      id: recruiterId,
+      name: recruiterProfile.name || "",
+      title: recruiterProfile.title || "",
+      email: recruiterProfile.email || ""
+    }
+  });
+});
+
+app.post("/api/v1/companies/invites", requireAuth, async (req, res) => {
+  const recruiterId = getRecruiterId(res);
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  const companyId = recruiterProfile.companyId;
+  if (!companyId) {
+    res.status(400).json({ error: "Company not found for this user" });
+    return;
+  }
+  const { email } = req.body || {};
+  if (typeof email !== "string" || !email.trim()) {
+    res.status(400).json({ error: "Email is required" });
+    return;
+  }
+  const normalizedEmail = normalizeEmail(email);
+  const emailDomain = normalizedEmail.split("@")[1];
+  const companySnap = await db.collection("companies").doc(companyId).get();
+  const company = companySnap.data() || {};
+  const domains: string[] = Array.isArray(company.domains) ? company.domains : [];
+  if (!emailDomain || !domains.includes(emailDomain)) {
+    res.status(400).json({ error: "Invite email must match the company domain." });
+    return;
+  }
+
+  const inviteId = crypto.randomBytes(18).toString("hex");
+  const now = Timestamp.now();
+  const expiresAt = Timestamp.fromMillis(Date.now() + inviteTtlDays * 24 * 60 * 60 * 1000);
+  await db.collection("company_invites").doc(inviteId).set({
+    companyId,
+    email: normalizedEmail,
+    status: "pending",
+    createdAt: now,
+    expiresAt,
+    createdBy: recruiterId
+  });
+
+  const inviteLink = buildCompanyInviteLink(inviteId);
+  await sendInviteEmail({
+    to: normalizedEmail,
+    companyName: company.name || "Your company",
+    inviteLink,
+    inviterName: recruiterProfile.name || recruiterProfile.email
+  });
+
+  res.status(201).json({
+    invite: {
+      id: inviteId,
+      email: normalizedEmail,
+      status: "pending",
+      expiresAt: expiresAt.toDate().toISOString(),
+      link: inviteLink
+    }
+  });
+});
+
+app.get("/api/v1/companies/invites", requireAuth, async (_req, res) => {
+  const recruiterId = getRecruiterId(res);
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  const companyId = recruiterProfile.companyId;
+  if (!companyId) {
+    res.status(400).json({ error: "Company not found for this user" });
+    return;
+  }
+  const invitesSnap = await db
+    .collection("company_invites")
+    .where("companyId", "==", companyId)
+    .orderBy("createdAt", "desc")
+    .get();
+  const invites = invitesSnap.docs.map((docSnap) => {
+    const data = docSnap.data() || {};
+    return {
+      id: docSnap.id,
+      email: data.email || "",
+      status: data.status || "pending",
+      createdAt: data.createdAt?.toDate?.().toISOString() || null,
+      expiresAt: data.expiresAt?.toDate?.().toISOString() || null,
+      usedAt: data.usedAt?.toDate?.().toISOString() || null,
+      link: buildCompanyInviteLink(docSnap.id)
+    };
+  });
+  res.json({ invites });
+});
+
+app.post("/api/v1/companies/invites/:inviteId/resend", requireAuth, async (req, res) => {
+  const recruiterId = getRecruiterId(res);
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  const companyId = recruiterProfile.companyId;
+  const inviteRef = db.collection("company_invites").doc(req.params.inviteId);
+  const inviteSnap = await inviteRef.get();
+  if (!companyId || !inviteSnap.exists) {
+    res.status(404).json({ error: "Invite not found" });
+    return;
+  }
+  const invite = inviteSnap.data() || {};
+  if (invite.companyId !== companyId) {
+    res.status(403).json({ error: "Not allowed" });
+    return;
+  }
+  if (invite.status !== "pending") {
+    res.status(409).json({ error: "Invite is not pending" });
+    return;
+  }
+  const expiresAt = Timestamp.fromMillis(Date.now() + inviteTtlDays * 24 * 60 * 60 * 1000);
+  await inviteRef.update({ expiresAt });
+  const companySnap = await db.collection("companies").doc(companyId).get();
+  const company = companySnap.data() || {};
+  const inviteLink = buildCompanyInviteLink(inviteRef.id);
+  await sendInviteEmail({
+    to: invite.email,
+    companyName: company.name || "Your company",
+    inviteLink,
+    inviterName: recruiterProfile.name || recruiterProfile.email
+  });
+  res.json({ ok: true });
+});
+
+app.post("/api/v1/companies/invites/:inviteId/revoke", requireAuth, async (req, res) => {
+  const recruiterId = getRecruiterId(res);
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  const companyId = recruiterProfile.companyId;
+  const inviteRef = db.collection("company_invites").doc(req.params.inviteId);
+  const inviteSnap = await inviteRef.get();
+  if (!companyId || !inviteSnap.exists) {
+    res.status(404).json({ error: "Invite not found" });
+    return;
+  }
+  const invite = inviteSnap.data() || {};
+  if (invite.companyId !== companyId) {
+    res.status(403).json({ error: "Not allowed" });
+    return;
+  }
+  await inviteRef.update({ status: "revoked", revokedAt: Timestamp.now(), revokedBy: recruiterId });
+  res.json({ ok: true });
+});
+
+app.get("/api/v1/companies/invites/:inviteId", async (req, res) => {
+  const inviteRef = db.collection("company_invites").doc(req.params.inviteId);
+  const inviteSnap = await inviteRef.get();
+  if (!inviteSnap.exists) {
+    res.status(404).json({ error: "Invite not found" });
+    return;
+  }
+  const invite = inviteSnap.data() || {};
+  if (invite.status !== "pending" || isInviteExpired(invite.expiresAt)) {
+    if (invite.status === "pending" && isInviteExpired(invite.expiresAt)) {
+      await inviteRef.update({ status: "expired" });
+    }
+    res.status(410).json({ error: "Invite expired or already used" });
+    return;
+  }
+  const companySnap = await db.collection("companies").doc(invite.companyId).get();
+  if (!companySnap.exists) {
+    res.status(404).json({ error: "Company not found" });
+    return;
+  }
+  const company = companySnap.data() || {};
+  res.json({
+    invite: {
+      id: inviteSnap.id,
+      email: invite.email,
+      status: invite.status,
+      expiresAt: invite.expiresAt?.toDate?.().toISOString() || null
+    },
+    company: {
+      id: companySnap.id,
+      name: company.name || "",
+      website: company.website || "",
+      logoUrl: company.logoUrl || ""
+    }
+  });
+});
+
+app.post("/api/v1/companies/invites/:inviteId/accept", requireAuth, async (req, res) => {
+  const recruiterId = getRecruiterId(res);
+  const authUser = res.locals.authUser as DecodedIdToken;
+  const inviteRef = db.collection("company_invites").doc(req.params.inviteId);
+  const inviteSnap = await inviteRef.get();
+  if (!inviteSnap.exists) {
+    res.status(404).json({ error: "Invite not found" });
+    return;
+  }
+  const invite = inviteSnap.data() || {};
+  if (invite.status !== "pending" || isInviteExpired(invite.expiresAt)) {
+    if (invite.status === "pending" && isInviteExpired(invite.expiresAt)) {
+      await inviteRef.update({ status: "expired" });
+    }
+    res.status(410).json({ error: "Invite expired or already used" });
+    return;
+  }
+  const email = normalizeEmail(authUser.email || "");
+  if (!email || email !== invite.email) {
+    res.status(403).json({ error: "Invite email does not match the signed-in user." });
+    return;
+  }
+
+  const now = Timestamp.now();
+  await inviteRef.update({ status: "accepted", usedAt: now, acceptedBy: recruiterId });
+
+  await db.collection("recruiters").doc(recruiterId).set(
+    {
+      email,
+      name: authUser.name || "",
+      companyId: invite.companyId,
+      updatedAt: now
+    },
+    { merge: true }
+  );
+
+  res.json({ ok: true, companyId: invite.companyId });
 });
 
 app.post("/api/v1/jobs/format", requireAuth, async (req, res) => {
@@ -177,6 +681,8 @@ app.post("/api/v1/jobs/format", requireAuth, async (req, res) => {
 
 app.post("/api/v1/jobs", requireAuth, async (req, res) => {
   const recruiterId = getRecruiterId(res);
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  const companyId = recruiterProfile.companyId || "";
   const { title, rawDescription, description, descriptionMarkdown, questionsMarkdown, language } = req.body || {};
 
   if (typeof title !== "string" || !title.trim()) {
@@ -209,6 +715,7 @@ app.post("/api/v1/jobs", requireAuth, async (req, res) => {
   const now = Timestamp.now();
   const jobRef = await db.collection("jobs").add({
     recruiterId,
+    companyId,
     title: title.trim(),
     rawDescription: normalizedRawDescription,
     description: normalizedDescription || extractSummary(normalizedDescriptionMarkdown),
@@ -225,6 +732,7 @@ app.post("/api/v1/jobs", requireAuth, async (req, res) => {
     job: {
       id: jobRef.id,
       recruiterId,
+      companyId,
       title: title.trim(),
       rawDescription: normalizedRawDescription,
       description: normalizedDescription || extractSummary(normalizedDescriptionMarkdown),
@@ -240,16 +748,38 @@ app.post("/api/v1/jobs", requireAuth, async (req, res) => {
 
 app.get("/api/v1/jobs", requireAuth, async (_req, res) => {
   const recruiterId = getRecruiterId(res);
-  const snapshot = await db.collection("jobs").where("recruiterId", "==", recruiterId).orderBy("createdAt", "desc").get();
-  const jobs = snapshot.docs.map((docSnap) => {
-    const data = docSnap.data();
-    return {
-      id: docSnap.id,
-      ...data,
-      language: data.language || DEFAULT_LANGUAGE,
-      createdAt: data.createdAt?.toDate().toISOString() || null,
-      updatedAt: data.updatedAt?.toDate().toISOString() || null
-    };
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  const companyId = recruiterProfile.companyId;
+  const jobMap = new Map<string, Record<string, unknown>>();
+  const addJobs = (docs: FirebaseFirestore.QueryDocumentSnapshot[]) => {
+    docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      jobMap.set(docSnap.id, {
+        id: docSnap.id,
+        ...data,
+        language: data.language || DEFAULT_LANGUAGE,
+        createdAt: data.createdAt?.toDate().toISOString() || null,
+        updatedAt: data.updatedAt?.toDate().toISOString() || null
+      });
+    });
+  };
+
+  if (companyId) {
+    const [companySnap, recruiterSnap] = await Promise.all([
+      db.collection("jobs").where("companyId", "==", companyId).orderBy("createdAt", "desc").get(),
+      db.collection("jobs").where("recruiterId", "==", recruiterId).orderBy("createdAt", "desc").get()
+    ]);
+    addJobs(companySnap.docs);
+    addJobs(recruiterSnap.docs);
+  } else {
+    const snapshot = await db.collection("jobs").where("recruiterId", "==", recruiterId).orderBy("createdAt", "desc").get();
+    addJobs(snapshot.docs);
+  }
+
+  const jobs = Array.from(jobMap.values()).sort((a, b) => {
+    const aTime = typeof a.createdAt === "string" ? Date.parse(a.createdAt) : 0;
+    const bTime = typeof b.createdAt === "string" ? Date.parse(b.createdAt) : 0;
+    return bTime - aTime;
   });
 
   res.json({ jobs });
@@ -257,10 +787,12 @@ app.get("/api/v1/jobs", requireAuth, async (_req, res) => {
 
 app.get("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
   const recruiterId = getRecruiterId(res);
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  const companyId = recruiterProfile.companyId;
   const jobRef = db.collection("jobs").doc(req.params.jobId);
   const jobSnap = await jobRef.get();
 
-  if (!jobSnap.exists || jobSnap.data()?.recruiterId !== recruiterId) {
+  if (!jobSnap.exists || !canAccessJob(jobSnap.data() || {}, recruiterId, companyId)) {
     res.status(404).json({ error: "Job not found" });
     return;
   }
@@ -372,11 +904,13 @@ app.get("/api/v1/jobs/:jobId/preview", async (req, res) => {
 
 app.get("/api/v1/jobs/:jobId/candidates/:candidateId/report", requireAuth, async (req, res) => {
   const recruiterId = getRecruiterId(res);
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  const companyId = recruiterProfile.companyId;
   const { jobId, candidateId } = req.params;
   const jobRef = db.collection("jobs").doc(jobId);
   const jobSnap = await jobRef.get();
 
-  if (!jobSnap.exists || jobSnap.data()?.recruiterId !== recruiterId) {
+  if (!jobSnap.exists || !canAccessJob(jobSnap.data() || {}, recruiterId, companyId)) {
     res.status(404).json({ error: "Job not found" });
     return;
   }
@@ -437,11 +971,13 @@ app.get("/api/v1/jobs/:jobId/candidates/:candidateId/report", requireAuth, async
 
 app.put("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
   const recruiterId = getRecruiterId(res);
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  const companyId = recruiterProfile.companyId;
   const { title, rawDescription, description, descriptionMarkdown, questionsMarkdown, status, language } = req.body || {};
   const jobRef = db.collection("jobs").doc(req.params.jobId);
   const jobSnap = await jobRef.get();
 
-  if (!jobSnap.exists || jobSnap.data()?.recruiterId !== recruiterId) {
+  if (!jobSnap.exists || !canAccessJob(jobSnap.data() || {}, recruiterId, companyId)) {
     res.status(404).json({ error: "Job not found" });
     return;
   }
@@ -505,6 +1041,8 @@ app.put("/api/v1/jobs/:jobId", requireAuth, async (req, res) => {
 
 app.post("/api/v1/jobs/:jobId/candidates", requireAuth, async (req, res) => {
   const recruiterId = getRecruiterId(res);
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  const recruiterCompanyId = recruiterProfile.companyId;
   const { name, email } = req.body || {};
 
   if (typeof name !== "string" || !name.trim() || typeof email !== "string" || !email.trim()) {
@@ -515,12 +1053,13 @@ app.post("/api/v1/jobs/:jobId/candidates", requireAuth, async (req, res) => {
   const jobRef = db.collection("jobs").doc(req.params.jobId);
   const jobSnap = await jobRef.get();
 
-  if (!jobSnap.exists || jobSnap.data()?.recruiterId !== recruiterId) {
+  if (!jobSnap.exists || !canAccessJob(jobSnap.data() || {}, recruiterId, recruiterCompanyId)) {
     res.status(404).json({ error: "Job not found" });
     return;
   }
 
   const jobData = jobSnap.data() || {};
+  const resolvedCompanyId = jobData.companyId || recruiterCompanyId || "";
   if (!Array.isArray(jobData.questions) || jobData.questions.length === 0) {
     res.status(400).json({ error: "Add interview questions before inviting candidates." });
     return;
@@ -530,6 +1069,7 @@ app.post("/api/v1/jobs/:jobId/candidates", requireAuth, async (req, res) => {
   const candidateRef = db.collection("candidates").doc();
   await candidateRef.set({
     recruiterId,
+    companyId: resolvedCompanyId,
     jobId: jobRef.id,
     name: name.trim(),
     email: email.trim(),
@@ -543,6 +1083,7 @@ app.post("/api/v1/jobs/:jobId/candidates", requireAuth, async (req, res) => {
 
   await db.collection("invites").doc(inviteId).set({
     recruiterId,
+    companyId: resolvedCompanyId,
     jobId: jobRef.id,
     candidateId: candidateRef.id,
     status: "created",
@@ -554,6 +1095,7 @@ app.post("/api/v1/jobs/:jobId/candidates", requireAuth, async (req, res) => {
     candidate: {
       id: candidateRef.id,
       recruiterId,
+      companyId: resolvedCompanyId,
       jobId: jobRef.id,
       name: name.trim(),
       email: email.trim(),
@@ -729,6 +1271,7 @@ app.post("/api/v1/invites/:inviteId/accept", async (req, res) => {
   const sessionRef = db.collection("sessions").doc();
   await sessionRef.set({
     recruiterId: invite.recruiterId,
+    companyId: invite.companyId || jobData.companyId || "",
     jobId: invite.jobId,
     candidateId: invite.candidateId,
     inviteId: inviteSnap.id,
@@ -768,6 +1311,7 @@ app.post("/api/v1/sessions/:sessionId/transcripts", async (req, res) => {
   await db.collection("transcripts").add({
     sessionId: sessionRef.id,
     recruiterId: session.recruiterId,
+    companyId: session.companyId || "",
     candidateId: session.candidateId,
     role,
     text: text.trim(),
@@ -779,10 +1323,17 @@ app.post("/api/v1/sessions/:sessionId/transcripts", async (req, res) => {
 
 app.get("/api/v1/sessions/:sessionId/transcripts", requireAuth, async (req, res) => {
   const recruiterId = getRecruiterId(res);
+  const recruiterProfile = await getRecruiterProfile(recruiterId);
+  const companyId = recruiterProfile.companyId;
   const sessionRef = db.collection("sessions").doc(req.params.sessionId);
   const sessionSnap = await sessionRef.get();
 
-  if (!sessionSnap.exists || sessionSnap.data()?.recruiterId !== recruiterId) {
+  const sessionData = sessionSnap.data() || {};
+  if (
+    !sessionSnap.exists ||
+    (!canAccessCompanyData(sessionData.companyId, recruiterId, companyId) &&
+      sessionData.recruiterId !== recruiterId)
+  ) {
     res.status(404).json({ error: "Session not found" });
     return;
   }

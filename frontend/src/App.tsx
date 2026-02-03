@@ -20,6 +20,9 @@ import JobPreviewPage from "./pages/JobPreviewPage";
 import StyleGuidePage from "./pages/StyleGuidePage";
 import LegalTermsPage from "./pages/LegalTermsPage";
 import LegalPrivacyPage from "./pages/LegalPrivacyPage";
+import InviteAcceptPage from "./pages/InviteAcceptPage";
+import CompanyTeamPage from "./pages/CompanyTeamPage";
+import CompanySettingsPage from "./pages/CompanySettingsPage";
 
 const App = () => {
   const location = useLocation();
@@ -36,6 +39,7 @@ const App = () => {
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/invite/:inviteId" element={<InviteAcceptPage />} />
         <Route path="/dashboard" element={<Navigate to="/app/dashboard" replace />} />
         <Route
           path="/app"
@@ -52,6 +56,8 @@ const App = () => {
           <Route path="jobs/:jobId" element={<JobDetailPage />} />
           <Route path="jobs/:jobId/edit" element={<JobsEditPage />} />
           <Route path="jobs/:jobId/candidates/:candidateId" element={<CandidateResultPage />} />
+          <Route path="team" element={<CompanyTeamPage />} />
+          <Route path="settings" element={<CompanySettingsPage />} />
         </Route>
         <Route path="/c/:inviteId" element={<CandidateInvitePage />} />
         <Route path="/c/:inviteId/setup" element={<DeviceSetupPage />} />
